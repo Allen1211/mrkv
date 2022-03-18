@@ -13,7 +13,6 @@ type MasterConf struct {
 }
 
 type RaftConf struct {
-	Servers		[]string `json:"servers"`
 	Me			int 	 `json:"me"`
 	DataDir		string	 `json:"data_dir"`
 	WalDir		string	 `json:"wal_dir"`

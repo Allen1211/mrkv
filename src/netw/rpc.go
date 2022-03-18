@@ -20,7 +20,7 @@ type ClientEnd struct {
 }
 
 func MakeRPCEnd(name, network, addr string) *ClientEnd {
-	ce := &ClientEnd{
+	ce := &ClientEnd {
 		Name: name,
 		Addr: addr,
 		Network: network,

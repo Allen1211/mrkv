@@ -109,21 +109,6 @@ func (kv *ShardKV) doLogCompact(needLock, needSnapshot bool) {
 }
 
 func (kv *ShardKV) createSnapshot() ([]byte, error) {
-	// snapshot := new(bytes.Buffer)
-	// for shardId, shard := range kv.shardDB {
-	// 	data := shard.Dump()
-	// 	header := SnapshotHeader{
-	// 		Magic: 		SnapshotHeaderMagic,
-	// 		ShardId: 	uint32(shardId),
-	// 		DataLen:    uint64(len(data)),
-	// 	}
-	// 	buf := header.Encode()
-	// 	buf = append(buf, data...)
-	//
-	// 	snapshot.Write(buf)
-	// }
-	// return snapshot.Bytes(), nil
-
 	return kv.store.Snapshot()
 }
 
@@ -141,22 +126,5 @@ func (kv *ShardKV) applySnapshot(snapshot []byte) {
 	}
 
 	kv.log.Infof("KVServer %d apply snapshot, size is %d, lastAppliedIndex is %d", kv.me, len(snapshot), kv.lastApplied)
-
-	// header := SnapshotHeader{}
-	// for i := 0; i < len(snapshot); {
-	// 	header.Decode(snapshot[i:i+LenOfSnapshotHeader])
-	// 	i += LenOfSnapshotHeader
-	// 	if header.Magic != SnapshotHeaderMagic {
-	// 		panic("snapshot magic not match")
-	// 	}
-	//
-	// 	dataLen, shardId := int(header.DataLen), int(header.ShardId)
-	// 	data := snapshot[i:i+dataLen]
-	// 	i += dataLen
-	//
-	// 	shard := MakeShard(shardId, INVALID, 0, kv.store)
-	// 	shard.Install(data)
-	// 	kv.shardDB[shardId] = shard
-	// }
 
 }

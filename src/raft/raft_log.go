@@ -9,7 +9,14 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"mrkv/src/common/labgob"
+	"mrkv/src/common/utils"
 )
+
+type LogEntry struct {
+	Command interface{}
+	Term    int
+	Index   int
+}
 
 type raftlog interface {
 	CpIdx()				int
@@ -34,6 +41,8 @@ type raftlog interface {
 	restore(data []byte)
 
 	sync()
+
+	clear()
 }
 
 type inMemoryRaftLog struct {
@@ -51,6 +60,10 @@ func makeInMemoryRaftLog(cpIdx, cpTerm int, rf *Raft) raftlog {
 	rl.logs = make([]LogEntry, 0)
 	rl.logger = rf.logger
 	return rl
+}
+
+func (rl *inMemoryRaftLog) clear()  {
+
 }
 
 func (rl *inMemoryRaftLog) CpIdx() int {
@@ -230,6 +243,11 @@ func makeWriteAheadRaftLog(cpIdx, cpTerm int, rf *Raft, logFileName string, logF
 	rl.logFileName = logFileName
 	rl.logFileCap = logFileCap
 	return rl
+}
+
+func (rl *writeAheadRaftLog) clear()  {
+	rl.wal.close()
+	utils.DeleteFile(rl.logFileName)
 }
 
 func (rl *writeAheadRaftLog) CpIdx() int {
@@ -484,7 +502,7 @@ func (rl *writeAheadRaftLog) restore(data []byte) {
 			log.Fatal(err)
 		}
 		rl.logs = append(rl.logs, ent)
-		rl.logger.Debugf("RaftLog: recover log : %v", ent)
+		// rl.logger.Debugf("RaftLog: recover log : %v", ent)
 	}
 	rl.cpIdx, rl.cpTerm = int(rl.wal.cpIdx), int(rl.wal.cpTerm)
 	rl.logger.Infof("RaftLog: recover finish: cpIdx=%d cpTerm=%d", rl.cpIdx, rl.cpTerm)

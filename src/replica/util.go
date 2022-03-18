@@ -22,7 +22,7 @@ func willTimeout(f func(), timeout time.Duration) bool {
 }
 
 
-func (kv *ShardKV) printLatestConfig(c master.Config)  {
+func (kv *ShardKV) printLatestConfig(c master.ConfigV1)  {
 	gid2Shards := make(map[int][]int)
 	for s, gid := range c.Shards {
 		if _, ok := gid2Shards[gid]; !ok {

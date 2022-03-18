@@ -3,26 +3,28 @@ package replica
 import (
 	"encoding/binary"
 	"fmt"
+
+	"mrkv/src/master"
 )
 
 type Shard struct {
 	Idx      int
-	Status   ShardStatus
+	Status   master.ShardStatus
 	ExOwner  int
 
 	Store Store
 }
 
-func MakeShard(id int, status ShardStatus, exOwner int, store Store) *Shard {
+func MakeShard(id int, status master.ShardStatus, exOwner int, store Store) *Shard {
 	s := new(Shard)
+	s.Idx = id
 	s.Store = store
 	s.SetStatus(status)
 	s.SetExOwner(exOwner)
-	s.Idx = id
 	return s
 }
 
-func (s *Shard) SetStatus(status ShardStatus) {
+func (s *Shard) SetStatus(status master.ShardStatus) {
 	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, uint64(status))
 	if err := s.Store.Put(fmt.Sprintf(ShardMetaPrefix, s.Idx, "status"), buf); err != nil {
@@ -77,16 +79,47 @@ func (s *Shard) Install(snapshot []byte) {
 	}
 }
 
+func (s *Shard) SetVersion(version int)  {
+	key := fmt.Sprintf(ShardVersion, s.Idx)
+	val, err := s.Store.Get(key)
+	if err != nil {
+		panic(err)
+	}
+	if val != nil && len(val) > 0 {
+		oldVersion := int(binary.LittleEndian.Uint64(val))
+		if version <= oldVersion {
+			return
+		}
+	}
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uint64(version))
+	if err := s.Store.Put(key, buf); err != nil {
+		panic(err)
+	}
+}
+func (s *Shard) GetVersion() int {
+	key := fmt.Sprintf(ShardVersion, s.Idx)
+	val, err := s.Store.Get(key)
+	if err != nil {
+		panic(err)
+	}
+	if val != nil && len(val) > 0 {
+		return int(binary.LittleEndian.Uint64(val))
+	} else {
+		return 0
+	}
+}
+
 func (s *Shard) LoadFromStore() (err error) {
 	var val []byte
 	if val, err = s.Store.Get(fmt.Sprintf(ShardMetaPrefix, s.Idx, "status")); err != nil {
 		return err
-	} else {
-		s.Status = ShardStatus(binary.LittleEndian.Uint64(val))
+	} else if val != nil  {
+		s.Status = master.ShardStatus(binary.LittleEndian.Uint64(val))
 	}
 	if val, err = s.Store.Get(fmt.Sprintf(ShardMetaPrefix, s.Idx, "exOwner")); err != nil {
 		return err
-	} else {
+	} else if val != nil {
 		s.ExOwner = int(binary.LittleEndian.Uint64(val))
 	}
 	return err
@@ -104,4 +137,13 @@ func (s *Shard) ClearUserData() {
 	if err := s.Store.Clear(prefix); err != nil {
 		panic(err)
 	}
+}
+
+func (s *Shard) Size() int64 {
+	prefix := fmt.Sprintf(ShardBasePrefix, s.Idx)
+	size, err := s.Store.Size([]string{prefix})
+	if err != nil {
+		panic(err)
+	}
+	return size
 }

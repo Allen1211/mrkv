@@ -3,8 +3,8 @@ package replica
 import (
 	"fmt"
 
+	"mrkv/src/common"
 	"mrkv/src/master"
-	"mrkv/src/netw"
 	"mrkv/src/raft"
 )
 
@@ -55,11 +55,11 @@ func (kv *ShardKV) applyer() {
 				cmd := cmdI.(KVCmd)
 				kv.log.Infof("KVServer %d Applyer received kv msg from applyCh: %d", kv.me, msg.CommandIndex)
 
-				var val string
+				var val []byte
 				var ok bool
-				var err Err
+				var err common.Err
 				val, ok, err, _ = kv.applyKVCmd(cmd)
-				if err == ErrDuplicate {
+				if err == common.ErrDuplicate {
 					kv.log.Infof("KVServer %d Applyer received kv msg from applyCh: idx=%d is duplicated", kv.me, msg.CommandIndex)
 					// continue
 				}
@@ -103,7 +103,7 @@ func (kv *ShardKV) applyer() {
 					ApplyResBase: &ApplyResBase{
 						cmdType: CmdEraseShard,
 						idx:     msg.CommandIndex,
-						err:     OK,
+						err:     common.OK,
 					},
 				}
 				kv.sendResToWaitC(res, msg.CommandTerm)
@@ -129,22 +129,22 @@ func (kv *ShardKV) applyer() {
 	}
 }
 
-func (kv *ShardKV) applyKVCmd(cmd KVCmd) (string, bool, Err, bool) {
+func (kv *ShardKV) applyKVCmd(cmd KVCmd) ([]byte, bool, common.Err, bool) {
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
 
 	op := cmd.Op
 	key, newVal := op.Key, op.Value
 
-	shardIdx := key2shard(key)
+	shardIdx := master.Key2shard(key)
 	shard := kv.shardDB[shardIdx]
-	if kv.currConfig.Shards[shardIdx] != kv.gid || !(shard.Status == SERVING || shard.Status == WAITING) {
-		return "", false, ErrWrongGroup, false
+	if kv.currConfig.Shards[shardIdx] != kv.gid || !(shard.Status == master.SERVING || shard.Status == master.WAITING) {
+		return nil, false, common.ErrWrongGroup, false
 	}
 
 	if op.Type == OpPut || op.Type == OpAppend {
 		if shard.IfDuplicateAndSet(cmd.Cid, cmd.Seq, true) {
-			return	"", false, ErrDuplicate, false
+			return	nil, false, common.ErrDuplicate, false
 		}
 		kv.log.Debugf("KVServer %d update CkMaxSeq to %d, cmd=%v", kv.me, cmd.Seq, *cmd.CmdBase)
 
@@ -156,24 +156,30 @@ func (kv *ShardKV) applyKVCmd(cmd KVCmd) (string, bool, Err, bool) {
 	case OpGet:
 		val, err := db.Get(fullKey)
 		if err != nil {
-			return "", false, ErrFailed, true
+			return nil, false, common.ErrFailed, true
 		}
 		if val == nil {
-			return "", false, ErrNoKey, true
+			return nil, false, common.ErrNoKey, true
 		} else {
-			return string(val), true, OK, true
+			return val, true, common.OK, true
 		}
 	case OpPut:
-		if err := db.Put(fullKey, []byte(newVal)); err != nil {
-			return "", false, ErrFailed, true
+		if err := db.Put(fullKey, newVal); err != nil {
+			return nil, false, common.ErrFailed, true
 		} else {
-			return newVal, true, OK, true
+			return newVal, true, common.OK, true
 		}
 	case OpAppend:
-		if err := db.Append(fullKey, []byte(newVal)); err != nil {
-			return "", false, ErrFailed, true
+		if err := db.Append(fullKey, newVal); err != nil {
+			return nil, false, common.ErrFailed, true
 		} else {
-			return newVal, true, OK, true
+			return newVal, true, common.OK, true
+		}
+	case OpDelete:
+		if err := db.Delete(fullKey); err != nil {
+			return nil, false, common.ErrFailed, true
+		} else {
+			return newVal, true, common.OK, true
 		}
 	default:
 		panic("unreconized op type")
@@ -217,20 +223,20 @@ func (kv *ShardKV) applyReConfigure(cmd ConfCmd) bool {
 		if gid != kv.gid || currConfig.Shards[shardId] == kv.gid {
 			continue
 		}
-		if currConfig.Num == 0 {
+		if currConfig.Num == 0 || currConfig.Shards[shardId] == 0 {
 			// first currConfig, install shard but dont need to pull from other cluster
-			kv.shardDB[shardId] = MakeShard(shardId, SERVING, 0, kv.store)
+			kv.shardDB[shardId] = MakeShard(shardId, master.SERVING, 0, kv.store)
 		} else {
 
 			var shard *Shard
 			var ok bool
 
 			if shard, ok = kv.shardDB[shardId]; !ok {
-				shard = MakeShard(shardId, INVALID, 0, kv.store)
+				shard = MakeShard(shardId, master.INVALID, 0, kv.store)
 				kv.shardDB[shardId] = shard
 			}
 			shard.SetExOwner(currConfig.Shards[shardId])
-			shard.SetStatus(PULLING)
+			shard.SetStatus(master.PULLING)
 
 			kv.log.Infof("KVServer %d gain shard %d, now status is %v, exOwner is %d",
 				kv.me, shardId, shard.Status, shard.ExOwner)
@@ -245,34 +251,36 @@ func (kv *ShardKV) applyReConfigure(cmd ConfCmd) bool {
 
 		if currConfig.Num == 0 {
 			// first currConfig, do nothing
-			kv.shardDB[shardId] = MakeShard(shardId, SERVING, 0, kv.store)
+			kv.shardDB[shardId] = MakeShard(shardId, master.SERVING, 0, kv.store)
 		} else {
 
 			var shard *Shard
 			var ok bool
 
 			if shard, ok = kv.shardDB[shardId]; !ok {
-				shard = MakeShard(shardId, SERVING, kv.gid, kv.store)
+				shard = MakeShard(shardId, master.SERVING, kv.gid, kv.store)
 				kv.shardDB[shardId] = shard
 			}
 			shard.SetExOwner(kv.gid)
 
-			switch shard.Status {
-			case INVALID:
-			case SERVING:
-				// we lost a shard
-				shard.SetStatus(ERASING)
-			case ERASING:
-			case PULLING:
-				shard.SetStatus(ERASING)
+			if gid == 0 {
+				shard.SetStatus(master.INVALID)
+			} else {
+				switch shard.Status {
+				case master.INVALID:
+				case master.SERVING:
+					// we lost a shard
+					shard.SetStatus(master.ERASING)
+				case master.ERASING:
+				case master.PULLING:
+					shard.SetStatus(master.ERASING)
+				}
 			}
 
 			kv.log.Infof("KVServer %d lost shard %d, now status is %v, exOwner is %d, nowOwner is %d",
 				kv.me, shardId, shard.Status, shard.ExOwner, newConfig.Shards[shardId])
 		}
 	}
-
-	kv.updateEnds(newConfig)
 
 	kv.SetPrevConfig(currConfig)
 	kv.SetCurrConfig(newConfig)
@@ -288,29 +296,29 @@ func (kv *ShardKV) applyInstallShard(cmd InstallShardCmd) bool {
 	defer kv.mu.Unlock()
 
 	if cmd.ConfNum != kv.currConfig.Num {
-		kv.log.Infof("KVServer %d cannot apply install shard cmd: %v, because Config Num not match %d != %d",
-			kv.me, cmd, kv.currConfig.Num, cmd.ConfNum)
+		kv.log.Infof("KVServer %d cannot apply install shard cmd, because Config Num not match %d != %d",
+			kv.me, kv.currConfig.Num, cmd.ConfNum)
 		return true
 	}
 	for shardId, shard := range cmd.Shards {
 		if kv.currConfig.Shards[shardId] != kv.gid {
 			continue
 		}
-		if localShard := kv.shardDB[shardId]; localShard.Status == PULLING {
+		if localShard := kv.shardDB[shardId]; localShard.Status == master.PULLING {
 
 			localShard.Install(shard)
 			localShard.SetExOwner( kv.prevConfig.Shards[shardId])
-			localShard.SetStatus(WAITING)
+			localShard.SetStatus(master.WAITING)
+			localShard.SetVersion(kv.currConfig.Num)
 
 			kv.log.Infof("KVServer %d shard %d installed, PULLING -> WAITING, exOwner is %d",
 				kv.me, shardId, localShard.ExOwner)
 
-		} else if localShard.Status != PULLING {
+		} else if localShard.Status != master.PULLING {
 			kv.log.Infof("KVServer %d shard %d pull shard cmd apply duplicated, break", kv.me, shardId)
 			continue
 		}
 	}
-
 	return true
 }
 
@@ -325,18 +333,21 @@ func (kv *ShardKV) applyEraseShard(cmd EraseShardCmd) bool {
 	}
 
 	for _, shardId := range cmd.Shards {
-		if shard, ok := kv.shardDB[shardId]; ok && (shard.Status == ERASING || shard.Status == INVALID){
+		if shard, ok := kv.shardDB[shardId]; ok && (shard.Status == master.ERASING || shard.Status == master.INVALID){
 			kv.log.Infof("KVServer %d shard %d erased, ERASING -> INVALID", kv.me, shardId)
-			shard.SetStatus(INVALID)
-			shard.ClearUserData()
-			// shard.DB = make(map[string]string)
-		} else if shard.Status != ERASING {
+			shard.SetStatus(master.INVALID)
+			if kv.currConfig.Num > shard.GetVersion() {
+				shard.ClearUserData()
+				kv.log.Infof("KVServer %d do clear shard data", kv.me)
+			} else {
+				kv.log.Infof("KVServer %d dont need to clear shard data", kv.me)
+			}
+		} else if shard.Status != master.ERASING {
 			kv.log.Infof("KVServer %d shard %d erase shard cmd apply duplicated, break", kv.me, shardId)
 			// break
 			continue
 		}
 	}
-
 	return true
 }
 
@@ -352,10 +363,10 @@ func (kv *ShardKV) applyStopWaitingShardCmd(cmd StopWaitingShardCmd) bool {
 
 	kv.log.Infof("KVServer %d apply stop waiting cmd: %v", kv.me, cmd)
 	for _, shardId := range cmd.Shards {
-		if shard, ok := kv.shardDB[shardId]; ok && shard.Status == WAITING {
+		if shard, ok := kv.shardDB[shardId]; ok && shard.Status == master.WAITING {
 			kv.log.Infof("KVServer %d shard %d stop waiting, WAITING -> SERVING", kv.me, shardId)
-			shard.SetStatus(SERVING)
-		} else if shard.Status != WAITING {
+			shard.SetStatus(master.SERVING)
+		} else if shard.Status != master.WAITING {
 			kv.log.Infof("KVServer %d shard %d stop waiting cmd apply duplicated, break", kv.me, shardId)
 			continue
 		}
@@ -383,20 +394,4 @@ func (kv *ShardKV) sendResToWaitC(res ApplyRes, msgTerm int) {
 		kv.log.Debugf("KVServer %d Applyer successfully send apply result %v to waiting channel %v", kv.me, res.GetIdx(), c)
 	default:
 	}
-}
-
-func (kv *ShardKV) updateEnds(config master.Config)  {
-	for gid, servers := range config.Groups {
-		if _, ok := kv.ends[gid]; ok {
-			continue
-		}
-		kv.ends[gid] = make([]*netw.ClientEnd, len(servers))
-		for i, addr := range servers {
-			kv.ends[gid][i] = netw.MakeRPCEnd(fmt.Sprintf("Rplica-%d-%d", gid, i), "tcp", addr)
-		}
-	}
-}
-
-func (kv *ShardKV) makeEnd(gid, i int) *netw.ClientEnd {
-	return kv.ends[gid][i]
 }

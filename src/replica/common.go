@@ -1,5 +1,9 @@
 package replica
 
+import (
+	"mrkv/src/common"
+)
+
 //
 // Sharded key/value server.
 // Lots of replica groups, each running op-at-a-time paxos.
@@ -9,20 +13,12 @@ package replica
 // You will have to modify these definitions.
 //
 
-type Err string
 
 const (
-	OK             = "OK"
-	ErrNoKey       = "ErrNoKey"
-	ErrWrongGroup  = "ErrWrongGroup"
-	ErrWrongLeader = "ErrWrongLeader"
-	ErrFailed 	   = "ErrFailed"
-	ErrDuplicate   = "ErrDuplicate"
-	ErrDiffConf    = "ErrDiffConf"
-
 	OpGet    = "GET"
 	OpPut    = "PUT"
 	OpAppend = "APPEND"
+	OpDelete = "DELETE"
 )
 
 type CmdType string
@@ -37,20 +33,17 @@ const (
 	CmdStopWaiting  = "STOP WAITING SHARD"
 )
 
-type ShardStatus int
-
-const (
-	SERVING  	ShardStatus = iota
-	INVALID
-	PULLING
-	ERASING
-	WAITING
-)
-
 type BaseArgs struct {
 	Cid 	int64
 	Seq 	int64
 	ConfNum int
+	Gid		int
+}
+
+type FromReply struct {
+	NodeId int
+	GID    int
+	Peer   int
 }
 
 // Put or Append
@@ -58,12 +51,13 @@ type PutAppendArgs struct {
 	BaseArgs
 
 	Key   string
-	Value string
+	Value []byte
 	Op    string // "Put" or "Append"
 }
 
 type PutAppendReply struct {
-	Err Err
+	FromReply
+	Err common.Err
 }
 
 type GetArgs struct {
@@ -72,8 +66,19 @@ type GetArgs struct {
 }
 
 type GetReply struct {
-	Err   Err
-	Value string
+	FromReply
+	Err   common.Err
+	Value []byte
+}
+
+type DeleteArgs struct {
+	BaseArgs
+	Key string
+}
+
+type DeleteReply struct {
+	FromReply
+	Err  common.Err
 }
 
 type PullShardArgs struct {
@@ -81,14 +86,9 @@ type PullShardArgs struct {
 	Shards  []int
 }
 
-// type PullShardReply struct {
-// 	Err 		Err
-// 	ConfNum 	int
-// 	Shards  	map[int]*Shard
-// }
 
 type PullShardReply struct {
-	Err 		Err
+	Err 		common.Err
 	ConfNum 	int
 	Shards  	map[int][]byte
 }
@@ -99,6 +99,6 @@ type EraseShardArgs struct {
 }
 
 type EraseShardReply struct {
-	Err 		Err
+	Err 		common.Err
 	ConfNum 	int
 }

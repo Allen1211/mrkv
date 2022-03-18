@@ -4,16 +4,11 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"log"
-	"net"
-	"net/http"
-	"net/rpc"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/syndtr/goleveldb/leveldb"
 
 	"mrkv/src/common"
 	"mrkv/src/common/labgob"
@@ -35,14 +30,11 @@ type ShardKV struct {
 	rf           *raft.Raft
 	applyCh      chan raft.ApplyMsg
 
-	servers		 []*netw.ClientEnd
-	ends		 map[int][]*netw.ClientEnd
-
 	gid          int
 	masters      []*netw.ClientEnd
 	mck			 *master.Clerk
 	maxraftstate int
-	persister	 *raft.MemoryPersister
+	persister	 *raft.DiskPersister
 
 	opApplied   map[int]chan ApplyRes
 	lastApplied int
@@ -50,34 +42,47 @@ type ShardKV struct {
 
 	store      Store
 	shardDB    map[int]*Shard
-	currConfig master.Config
-	prevConfig master.Config
+	currConfig master.ConfigV1
+	prevConfig master.ConfigV1
 
 	KilledC chan int
 	exitedC chan string
 	dead    int32 // set by Kill()
 
 	numDaemon int
+
+	rpcFunc netw.RpcFunc
 }
 
-func (kv *ShardKV) SetCurrConfig(config master.Config)  {
+func (kv* ShardKV) Raft() *raft.Raft {
+	return kv.rf
+}
+
+func (kv *ShardKV) SetCurrConfig(config master.ConfigV1)  {
 	buf := new(bytes.Buffer)
 	if err := labgob.NewEncoder(buf).Encode(config); err != nil {
 		panic(err)
 	}
-	if err := kv.store.Put(KeyCurrConfig, buf.Bytes()); err != nil {
+	if err := kv.store.Put(fmt.Sprintf(KeyCurrConfig, kv.gid), buf.Bytes()); err != nil {
 		panic(err)
 	}
 	kv.currConfig = config
 
 }
 
-func (kv *ShardKV) SetPrevConfig(config master.Config) {
+func (kv *ShardKV) GetCurrConfig() master.ConfigV1 {
+	kv.mu.RLock()
+	res := kv.currConfig
+	kv.mu.RUnlock()
+	return res
+}
+
+func (kv *ShardKV) SetPrevConfig(config master.ConfigV1) {
 	buf := new(bytes.Buffer)
 	if err := labgob.NewEncoder(buf).Encode(config); err != nil {
 		panic(err)
 	}
-	if err := kv.store.Put(KeyPrevConfig, buf.Bytes()); err != nil {
+	if err := kv.store.Put(fmt.Sprintf(KeyPrevConfig, kv.gid), buf.Bytes()); err != nil {
 		panic(err)
 	}
 	kv.prevConfig = config
@@ -86,54 +91,104 @@ func (kv *ShardKV) SetPrevConfig(config master.Config) {
 func (kv *ShardKV) SetLastApplied(lastApplied int) {
 	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, uint64(lastApplied))
-	if err := kv.store.Put(KeyLastApplied, buf); err != nil {
+	if err := kv.store.Put(fmt.Sprintf(KeyLastApplied, kv.gid), buf); err != nil {
 		panic(err)
 	}
 	kv.lastApplied = lastApplied
 }
 
+func (kv *ShardKV) Clear() {
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+
+	kv.rf.Clear()
+
+	prefix := fmt.Sprintf(KeyReplicaPrefix, kv.gid)
+	if err := kv.store.Clear(prefix); err != nil {
+		kv.log.Fatalf("failed to clear store: %v", err)
+	}
+	kv.store.Close()
+	kv.store.DeleteFile()
+}
+
+func (kv *ShardKV) GetGroupInfo() *master.GroupInfo {
+
+	kv.mu.RLock()
+	defer kv.mu.RUnlock()
+
+	_, isLeader := kv.rf.GetState()
+	conf := kv.currConfig
+	sizeOfGroup := int64(0)
+
+	shards := make(map[int]master.ShardInfo)
+	for id, shard := range kv.shardDB {
+		shards[id] = master.ShardInfo {
+			Id: 	id,
+			Gid: 	conf.Shards[id],
+			Status: shard.Status,
+			Size: shard.Size(),
+		}
+		sizeOfGroup += shards[id].Size
+	}
+	prefix := fmt.Sprintf(KeyReplicaPrefix, kv.gid)
+	if size, err := kv.store.Size([]string{prefix}); err != nil {
+		panic(err)
+	} else {
+		sizeOfGroup += size
+	}
+
+	res := &master.GroupInfo {
+		Id: 		kv.gid,
+		IsLeader:   isLeader,
+		ConfNum:    conf.Num,
+		Shards: 	shards,
+		Size: 		sizeOfGroup,
+		Peer:     	kv.me,
+	}
+
+	return res
+}
+
 func (kv *ShardKV) RecoverFromStore() (err error) {
 	var buf []byte
 
-	if buf, err = kv.store.Get(KeyLastApplied); err != nil {
+	if buf, err = kv.store.Get(fmt.Sprintf(KeyLastApplied, kv.gid)); err != nil {
 		return
-	} else {
+	} else if buf != nil {
 		kv.lastApplied = int(binary.LittleEndian.Uint64(buf))
 	}
-	if buf, err = kv.store.Get(KeyCurrConfig); err != nil {
+	if buf, err = kv.store.Get(fmt.Sprintf(KeyCurrConfig, kv.gid)); err != nil {
 		return
-	} else {
+	} else if buf != nil {
 		if err = labgob.NewDecoder(bytes.NewReader(buf)).Decode(&kv.currConfig); err != nil {
 			return
 		}
 	}
-	if buf, err = kv.store.Get(KeyPrevConfig); err != nil {
+	if buf, err = kv.store.Get(fmt.Sprintf(KeyPrevConfig, kv.gid)); err != nil {
 		return
-	} else {
-		if err = labgob.NewDecoder(bytes.NewReader(buf)).Decode(&kv.currConfig); err != nil {
+	} else if buf != nil {
+		if err = labgob.NewDecoder(bytes.NewReader(buf)).Decode(&kv.prevConfig); err != nil {
 			return
 		}
 	}
 
 	for i := 0; i < master.NShards; i++ {
-		kv.shardDB[i] = MakeShard(i, INVALID, 0, kv.store)
-
+		kv.shardDB[i] = &Shard {
+			Idx: i,
+			ExOwner: 0,
+			Status: master.INVALID,
+			Store: kv.store,
+		}
+		if err := kv.shardDB[i].LoadFromStore(); err != nil {
+			kv.log.Fatalf("shard %d cannot load from store: %v", i, err)
+		}
 	}
-
 
 	return
 }
 
 
 func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) (e error) {
-	defer func() {
-		if err := recover(); err != nil {
-			if err == leveldb.ErrClosed {
-				return
-			}
-			kv.log.Fatalln(err)
-		}
-	}()
 
 	cmd := KVCmd {
 		CmdBase: &CmdBase{
@@ -149,7 +204,7 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) (e error) {
 	kv.log.Infof("KVServer %d receive op: %v", kv.me, cmd.Op)
 
 	if !kv.checkShardInCharge(args.Key) {
-		reply.Err = ErrWrongGroup
+		reply.Err = common.ErrWrongGroup
 		return
 	}
 
@@ -160,31 +215,24 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) (e error) {
 
 		kv.mu.RLock()
 		reply.Value, reply.Err = kv.executeGet(args.Key)
+		reply.Peer, reply.GID = kv.me, kv.gid
 		kv.mu.RUnlock()
 		return
 	}
 
-	if res, err := kv.raftStartCmdWait(cmd); err != OK {
+	if res, err := kv.raftStartCmdWait(cmd); err != common.OK {
 		reply.Err = err
 	} else {
 		reply.Err = res.GetErr()
 		reply.Value = res.(*KVCmdApplyRes).val
-		kv.log.Infof("KVServer %d finished GET, key=%s, shard=%d, val=%s",kv.me, args.Key, key2shard(args.Key), reply.Value)
+		kv.log.Infof("KVServer %d finished GET, key=%s, shard=%d, val=%s",kv.me, args.Key, master.Key2shard(args.Key), reply.Value)
 	}
+	reply.Peer, reply.GID = kv.me, kv.gid
 
 	return
 }
 
 func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) (e error) {
-	defer func() {
-		if err := recover(); err != nil {
-			if err == leveldb.ErrClosed {
-				return
-			}
-			log.Panicln(err)
-		}
-	}()
-
 
 	cmd := KVCmd {
 		CmdBase: &CmdBase{
@@ -201,20 +249,56 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) (e erro
 	kv.log.Infof("KVServer %d receive cmd: %v, cid=%d, seq=%d", kv.me, cmd, cmd.Cid, cmd.Seq)
 
 	if !kv.checkShardInCharge(args.Key) {
-		reply.Err = ErrWrongGroup
+		reply.Err = common.ErrWrongGroup
 		return
 	}
 	if kv.isDuplicated(args.Key, args.Cid, args.Seq) {
-		reply.Err = ErrDuplicate
+		reply.Err = common.ErrDuplicate
 		return
 	}
 
-	if res, err := kv.raftStartCmdWait(cmd); err != OK {
+	if res, err := kv.raftStartCmdWait(cmd); err != common.OK {
 		reply.Err = err
 	} else {
 		reply.Err = res.GetErr()
-		kv.log.Infof("KVServer %d finished PUTAPPEND, key=%s, shard=%d, val=%s",kv.me, args.Key, key2shard(args.Key), args.Value)
+		kv.log.Infof("KVServer %d finished PUTAPPEND, key=%s, shard=%d, val=%s",kv.me, args.Key, master.Key2shard(args.Key), args.Value)
 	}
+	reply.Peer, reply.GID = kv.me, kv.gid
+
+	return
+}
+
+func (kv *ShardKV) Delete(args *DeleteArgs, reply *DeleteReply) (e error) {
+
+	cmd := KVCmd {
+		CmdBase: &CmdBase{
+			Type: CmdKV,
+			Cid: args.Cid,
+			Seq: args.Seq,
+		},
+		Op: Op{
+			Type: OpDelete,
+			Key:  args.Key,
+		},
+	}
+	kv.log.Infof("KVServer %d receive cmd: %v, cid=%d, seq=%d", kv.me, cmd, cmd.Cid, cmd.Seq)
+
+	if !kv.checkShardInCharge(args.Key) {
+		reply.Err = common.ErrWrongGroup
+		return
+	}
+	if kv.isDuplicated(args.Key, args.Cid, args.Seq) {
+		reply.Err = common.ErrDuplicate
+		return
+	}
+
+	if res, err := kv.raftStartCmdWait(cmd); err != common.OK {
+		reply.Err = err
+	} else {
+		reply.Err = res.GetErr()
+		kv.log.Infof("KVServer %d finished DELETE, key=%s, shard=%d",kv.me, args.Key, master.Key2shard(args.Key))
+	}
+	reply.Peer, reply.GID = kv.me, kv.gid
 
 	return
 }
@@ -222,7 +306,7 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) (e erro
 func (kv *ShardKV) PullShard(args *PullShardArgs, reply *PullShardReply) (e error) {
 
 	if _, isLeader := kv.rf.GetState(); !isLeader {
-		reply.Err = ErrWrongLeader
+		reply.Err = common.ErrWrongLeader
 		return
 	}
 
@@ -232,7 +316,7 @@ func (kv *ShardKV) PullShard(args *PullShardArgs, reply *PullShardReply) (e erro
 	kv.log.Infof("KVServer %d receive PullShard: %v", kv.me, *args)
 
 	if kv.currConfig.Num < args.ConfNum {
- 		reply.Err = ErrDiffConf
+ 		reply.Err = common.ErrDiffConf
 		reply.ConfNum = kv.currConfig.Num
 		return
 	}
@@ -244,14 +328,14 @@ func (kv *ShardKV) PullShard(args *PullShardArgs, reply *PullShardReply) (e erro
 	}
 
 	reply.ConfNum = kv.currConfig.Num
-	reply.Err = OK
+	reply.Err = common.OK
 
 	return
 }
 
 func (kv *ShardKV) EraseShard(args *EraseShardArgs, reply *EraseShardReply ) (e error) {
 	if _, isLeader := kv.rf.GetState(); !isLeader {
-		reply.Err = ErrWrongLeader
+		reply.Err = common.ErrWrongLeader
 		return
 	}
 
@@ -260,12 +344,12 @@ func (kv *ShardKV) EraseShard(args *EraseShardArgs, reply *EraseShardReply ) (e 
 	kv.mu.RLock()
 	if kv.currConfig.Num > args.ConfNum {
 		reply.ConfNum = kv.currConfig.Num
-		reply.Err = OK
+		reply.Err = common.OK
 		kv.mu.RUnlock()
 		return
 	}
 	if kv.currConfig.Num != args.ConfNum {
-		reply.Err = ErrDiffConf
+		reply.Err = common.ErrDiffConf
 		reply.ConfNum = kv.currConfig.Num
 		kv.mu.RUnlock()
 		return
@@ -280,7 +364,7 @@ func (kv *ShardKV) EraseShard(args *EraseShardArgs, reply *EraseShardReply ) (e 
 		ConfNum: kv.currConfig.Num,
 	}
 	res, err := kv.raftStartCmdWait(cmd)
-	if err != OK {
+	if err != common.OK {
 		reply.Err = err
 		reply.ConfNum = kv.currConfig.Num
 		return
@@ -295,34 +379,34 @@ func (kv *ShardKV) checkShardInCharge(key string) bool {
 	kv.mu.RLock()
 	defer kv.mu.RUnlock()
 
-	shardId := key2shard(key)
+	shardId := master.Key2shard(key)
 	if kv.currConfig.Shards[shardId] != kv.gid {
 		return false
 	}
-	if shard, ok := kv.shardDB[shardId]; !ok || !(shard.Status == SERVING || shard.Status == WAITING) {
+	if shard, ok := kv.shardDB[shardId]; !ok || !(shard.Status == master.SERVING || shard.Status == master.WAITING) {
 		return false
 	}
 	return true
 }
 
-func (kv *ShardKV) raftStartCmdNoWait(cmd Cmd) Err {
+func (kv *ShardKV) raftStartCmdNoWait(cmd Cmd) common.Err {
 	var idx, term int
 	var isLeader bool
 
 	if idx, term, isLeader = kv.rf.Start(cmd); !isLeader {
-		return ErrWrongLeader
+		return common.ErrWrongLeader
 	}
 	kv.log.Debugf("KVServer %d call raft.start res: Idx=%d term=%d isLeader=%v cmd=%v", kv.me, idx, term, isLeader, cmd.GetType())
 
-	return OK
+	return common.OK
 }
 
-func (kv *ShardKV) raftStartCmdWait(cmd Cmd) (ApplyRes, Err) {
+func (kv *ShardKV) raftStartCmdWait(cmd Cmd) (ApplyRes, common.Err) {
 	var idx, term int
 	var isLeader bool
 
 	if idx, term, isLeader = kv.rf.Start(cmd); !isLeader {
-		return nil, ErrWrongLeader
+		return nil, common.ErrWrongLeader
 	}
 	kv.log.Debugf("Group %d KVServer %d call raft.start res: Idx=%d term=%d isLeader=%v cmd=%v", kv.gid, kv.me, idx, term, isLeader, cmd)
 
@@ -338,14 +422,14 @@ func (kv *ShardKV) raftStartCmdWait(cmd Cmd) (ApplyRes, Err) {
 		if res.GetCmdType() != cmd.GetType()  {
 			kv.log.Debugf("KVServer %d apply command not match to the original wanted(%v) != actually(%v)",
 				kv.me, cmd, res)
-			return nil, ErrFailed
+			return nil, common.ErrFailed
 		}
 		kv.log.Debugf("KVServer %d receive res from waiting channel %v", kv.me, res.GetIdx())
-		return res, OK
+		return res, common.OK
 
 	case <-time.After(time.Second * 1):
 		kv.log.Warnf("KVServer %d op %v at Idx %d has not commited after 1 secs", kv.me, cmd.GetSeq(), idx)
-		return nil, ErrFailed
+		return nil, common.ErrFailed
 	}
 }
 
@@ -379,7 +463,7 @@ func (kv *ShardKV) waitAppliedTo(target int) {
 func (kv *ShardKV) isDuplicated(key string, cid, seq int64) bool {
 	kv.mu.RLock()
 	defer kv.mu.RUnlock()
-	shardId := key2shard(key)
+	shardId := master.Key2shard(key)
 	shard := kv.shardDB[shardId]
 	return shard.IfDuplicateAndSet(cid, seq, false)
 }
@@ -395,7 +479,6 @@ func (kv *ShardKV) Kill() {
 		name := <-kv.exitedC
 		kv.log.Warnf("KVServer %d daemon function %s exited", kv.me, name)
 	}
-	kv.store.Close()
 
 	kv.log.Warnf("KVServer %d exited", kv.me)
 
@@ -405,80 +488,56 @@ func (kv *ShardKV) Killed() bool {
 	return atomic.LoadInt32(&kv.dead) == 1
 }
 
-func (kv *ShardKV) StartRPCServer() error {
-	if err := rpc.RegisterName(fmt.Sprintf("Replica-%d-%d", kv.gid, kv.me) , kv); err != nil {
-		return err
-	}
-	l, err := net.Listen(kv.servers[kv.me].Network, kv.servers[kv.me].Addr)
-	if err != nil {
-		return err
-	}
-	go http.Serve(l, nil)
-	return nil
-}
-
-func StartServer(rf *raft.Raft, ch chan raft.ApplyMsg, servers []*netw.ClientEnd, me int, persister *raft.MemoryPersister,
-	gid int, masters []*netw.ClientEnd, dbPath string, logLevel string) *ShardKV {
+func StartServer(raftDataDir, logFileName string, logFileCap uint64 ,me int, peers int, gid int,
+	store Store, rpcFunc netw.RpcFunc, logLevel string) *ShardKV {
+	var err error
 
 	kv := new(ShardKV)
 	
 	kv.log, _ = common.InitLogger(logLevel, fmt.Sprintf("Replica-%d-%d", gid, me))
-	
+
+	kv.rpcFunc = rpcFunc
+
 	kv.me = me
 	kv.gid = gid
-	kv.masters = masters
-	kv.servers = servers
-	kv.ends = make(map[int][]*netw.ClientEnd)
 
 	kv.mck = master.MakeClerk(kv.masters)
-	kv.persister = persister
-
-	store, err := MakeLevelStore(dbPath)
-	if err != nil {
-		panic(err)
-	}
 	kv.store = store
 
-	kv.rf = rf
-	kv.applyCh = ch
+	kv.applyCh = make(chan raft.ApplyMsg)
+
+	snapshotPath := fmt.Sprintf("%s/snapshot-%d-%d", raftDataDir, gid, me)
+	raftstatePath := fmt.Sprintf("%s/raftstate-%d-%d", raftDataDir, gid, me)
+
+	if kv.persister, err = raft.MakeDiskPersister(snapshotPath, raftstatePath); err != nil {
+		kv.log.Fatalf("failed to make disk persister: %v", err)
+	}
+
+	kv.rf = raft.Make(kv.rpcFuncImpl, peers, me, kv.persister, kv.applyCh, true, logFileName, logFileCap, logLevel)
 
 	kv.opApplied = make(map[int]chan ApplyRes)
 	kv.appliedCond = sync.NewCond(&kv.mu)
 
-	kv.numDaemon = 5
+	kv.numDaemon = 4
 
 	kv.KilledC = make(chan int, kv.numDaemon + 1)
 	kv.exitedC = make(chan string, kv.numDaemon)
 
 	kv.shardDB = make(map[int]*Shard)
 
-	kv.currConfig = master.Config{
+	kv.currConfig = master.ConfigV1 {
 		Num: 0,
 		Shards: [master.NShards]int{},
-		Groups: map[int][]string{},
+		Groups: map[int][]master.ConfigNodeGroup{},
 	}
 
-	// restore from snapshot
-	snapshot := persister.ReadSnapshot()
-	if snapshot != nil && len(snapshot) > 0 {
-		kv.applySnapshot(snapshot)
-		kv.log.Infof("KVServer %d restore from snapshot, size %d", me, len(snapshot))
-	} else {
-		if err = store.Clear(""); err != nil {
-			panic(err)
-		}
-		kv.log.Infof("KVServer %d no snapshot or empty snapshot to restore", me)
-	}
-
-	for i := 0; i < master.NShards; i++ {
-		if _, ok := kv.shardDB[i]; !ok {
-			kv.shardDB[i] = MakeShard(i, INVALID, 0, store)
-		}
+	if err := kv.RecoverFromStore(); err != nil {
+		panic(err)
 	}
 
 	go kv.checkpointer()
 	go kv.applyer()
-	go kv.confUpdater()
+	// go kv.confUpdater()
 	go kv.shardPuller()
 	go kv.shardEraser()
 

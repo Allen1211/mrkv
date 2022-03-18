@@ -152,13 +152,13 @@ func (s *logScanner) scan(buf []byte, startLsn uint64, ch chan LogStruct) (bool,
 				*s.lastLog = *s.log
 			}
 
-			s.log = &LogStruct{
-				Body: make([]byte, 0),
-			}
 			s.flag = true
 			s.acquireLen = SizeOfLogHeader()
 			s.prevLsn = s.log.LSN
 			s.buf = []byte{}
+			s.log = &LogStruct{
+				Body: make([]byte, 0),
+			}
 		}
 
 	}
@@ -516,4 +516,8 @@ func (wal *WAL) isFirstPage(lsn uint64) bool {
 
 func (wal *WAL) willLoopBack(lsn uint64, step uint64) bool {
 	return wal.lsn2ofs(lsn) > wal.lsn2ofs(lsn + step)
+}
+
+func (wal *WAL) close() {
+	wal.file.Close()
 }

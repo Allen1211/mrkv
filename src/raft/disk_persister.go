@@ -1,12 +1,9 @@
 package raft
 
 import (
-	"strings"
 	"sync"
 
-	log "github.com/sirupsen/logrus"
-
-	utils "mrkv/src/common/utils"
+	"mrkv/src/common/utils"
 )
 
 const (
@@ -16,33 +13,24 @@ const (
 
 type DiskPersister struct {
 	mu  sync.RWMutex
-	dir string
 	snapshotPath	string
 	raftStatePath	string
 }
 
-func MakeDiskPersister(dir string) (*DiskPersister, error) {
-	if err := utils.CheckAndMkdir(dir); err != nil {
-		return nil, err
-	}
-	if !strings.HasSuffix(dir, "/") {
-		dir += "/"
-	}
+func MakeDiskPersister(snapshotPath, raftStatePath  string) (*DiskPersister, error) {
 	p := &DiskPersister{
 		mu:            sync.RWMutex{},
-		dir:           dir,
-		snapshotPath:  dir + snapFileName,
-		raftStatePath: dir + raftStateFileName,
+		snapshotPath:  snapshotPath,
+		raftStatePath: raftStatePath,
 	}
 	return p, nil
 }
 
 func (d *DiskPersister) Copy() Persister {
-	return &DiskPersister{
+	return &DiskPersister {
 		mu:  sync.RWMutex{},
-		dir: d.dir,
-		snapshotPath: d.dir + snapFileName,
-		raftStatePath: d.dir + raftStateFileName,
+		snapshotPath: d.snapshotPath,
+		raftStatePath: d.raftStatePath,
 	}
 }
 
@@ -68,15 +56,11 @@ func (d *DiskPersister) RaftStateSize() int {
 }
 
 func (d *DiskPersister) SaveStateAndSnapshot(state []byte, snapshot []byte) {
-	if err := utils.CheckAndMkdir(d.dir); err != nil {
-		log.Fatalf("DistPersister failed to check dir: %v\n", err)
-	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	utils.WriteFile(d.raftStatePath, state)
 	utils.WriteFile(d.snapshotPath, snapshot)
-
 }
 
 func (d *DiskPersister) ReadSnapshot() []byte {
@@ -93,6 +77,12 @@ func (d *DiskPersister) SnapshotSize() int {
 	return utils.SizeOfFile(d.snapshotPath)
 }
 
+func (d *DiskPersister) SaveSnapshot(snapshot []byte)  {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	utils.WriteFile(d.snapshotPath, snapshot)
+}
+
 func (d *DiskPersister) SaveLogState(state []byte) {
 }
 
@@ -102,4 +92,9 @@ func (d *DiskPersister) ReadLogState() []byte {
 
 func (d *DiskPersister) LogStateSize() int {
 	return 0
+}
+
+func (d *DiskPersister) Clear()  {
+	utils.DeleteFile(d.snapshotPath)
+	utils.DeleteFile(d.raftStatePath)
 }

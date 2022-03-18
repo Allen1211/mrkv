@@ -2,11 +2,14 @@ package replica
 
 import (
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
+	"mrkv/src/common"
 	"mrkv/src/master"
+	"mrkv/src/netw"
 )
 
 const (
@@ -18,11 +21,75 @@ const (
 
 func (kv *ShardKV) canPullConfig() bool {
 	for _, shard := range kv.shardDB {
-		if !(shard.Status == SERVING || shard.Status == INVALID) {
+		if !(shard.Status == master.SERVING || shard.Status == master.INVALID) {
 			return false
 		}
 	}
 	return true
+}
+
+func (kv *ShardKV) InitConfig(prevConfig, currConfig master.ConfigV1)  {
+	kv.log.Infof("init config, Num=%d; prevConfig: %v, currConfig %v", currConfig.Num, prevConfig, currConfig)
+
+	kv.SetPrevConfig(prevConfig)
+	kv.SetCurrConfig(currConfig)
+
+	// shards we gain
+	for shardId, gid := range currConfig.Shards {
+		if gid != kv.gid {
+			continue
+		}
+		if prevConfig.Shards[shardId] == kv.gid {
+			// kv.log.Fatalf("InitConfig: shard %d is already owned but this group is newly join", shardId)
+			kv.log.Warnf("InitConfig: shard %d is already owned but this group is newly join", shardId)
+		}
+		if prevConfig.Num == 0 || prevConfig.Shards[shardId] == 0 {
+			kv.shardDB[shardId] = MakeShard(shardId, master.SERVING, 0, kv.store)
+		} else {
+			var shard *Shard
+			var ok bool
+			if shard, ok = kv.shardDB[shardId]; !ok {
+				shard = MakeShard(shardId, master.INVALID, 0, kv.store)
+				kv.shardDB[shardId] = shard
+			}
+			shard.SetExOwner(prevConfig.Shards[shardId])
+			shard.SetStatus(master.PULLING)
+			kv.log.Infof("KVServer %d gain shard %d, now status is %v, exOwner is %d",
+				kv.me, shardId, shard.Status, shard.ExOwner)
+		}
+	}
+
+	// shards we lost
+	for shardId, gid := range currConfig.Shards {
+		if gid == kv.gid || prevConfig.Shards[shardId] != kv.gid {
+			continue
+		}
+		log.Warnf("InitConfig: shard %d is owned in prevConfig but this group is newly join", shardId)
+	}
+
+	kv.log.Debugf("KVServer %d finish init config, now current config: ", kv.me)
+	kv.printLatestConfig(kv.currConfig)
+}
+
+func (kv *ShardKV) UpdateConfig(config master.ConfigV1)  {
+	kv.mu.RLock()
+	if !kv.canPullConfig() {
+		kv.mu.RUnlock()
+		return
+	}
+	currConf := kv.currConfig
+	kv.mu.RUnlock()
+
+	if config.Num == currConf.Num + 1 {
+		kv.log.Infof("KVServer %d pull latest currConfig, Num=%d", kv.me, config.Num)
+		cmd := ConfCmd {
+			CmdBase: &CmdBase{
+				Type: CmdConf,
+			},
+			Config: config,
+		}
+		kv.raftStartCmdNoWait(cmd)
+	}
 }
 
 func (kv *ShardKV) confUpdater() {
@@ -45,7 +112,7 @@ func (kv *ShardKV) confUpdater() {
 			currConf := kv.currConfig
 			kv.mu.RUnlock()
 
-			var latestConf master.Config
+			var latestConf master.ConfigV1
 			f := func() {
 				latestConf = kv.mck.Query(currConf.Num + 1)
 			}
@@ -82,7 +149,7 @@ func (kv *ShardKV) shardPuller() {
 
 			kv.mu.RLock()
 
-			shards := kv.getShards(PULLING)
+			shards := kv.getShards(master.PULLING)
 			if len(shards) == 0 {
 				kv.mu.RUnlock()
 				continue
@@ -90,7 +157,7 @@ func (kv *ShardKV) shardPuller() {
 
 			shardsByExOwner := make(map[int][]int)
 			for _, shard := range shards {
-				if shard.Status != PULLING {
+				if shard.Status != master.PULLING {
 					continue
 				}
 				if _, ok := shardsByExOwner[shard.ExOwner]; !ok {
@@ -112,18 +179,19 @@ func (kv *ShardKV) shardPuller() {
 					args := PullShardArgs {
 						BaseArgs: BaseArgs{
 							ConfNum: confNum,
+							Gid: groupId,
 						},
 						Shards: shardsToPull,
 					}
 					reply := PullShardReply{}
 
-					ends, ok := kv.ends[groupId]
+					nodesOfGroup, ok := kv.prevConfig.Groups[groupId]
 					if !ok {
-						log.Printf("no ends found by gid %d", groupId)
+						kv.log.Errorf("no node found by gid %d", groupId)
 						return
 					}
-					for i := 0; i < len(ends); i++ {
-						if ok := ends[i].Call(fmt.Sprintf("Replica-%d-%d.PullShard", groupId, i), &args, &reply); ok && reply.Err == OK {
+					for _, node := range nodesOfGroup {
+						if ok := kv.rpcFunc(netw.ApiPullShard, &args, &reply, node.NodeId, groupId); ok && reply.Err == common.OK {
 							kv.log.Infof("KVServer %d ShardPuller: send PullShard to group %d success, raft start InstallShardCmd ", kv.me, groupId)
 							err := kv.raftStartCmdNoWait(InstallShardCmd {
 								CmdBase: &CmdBase {
@@ -132,12 +200,12 @@ func (kv *ShardKV) shardPuller() {
 								Shards: reply.Shards,
 								ConfNum: confNum,
 							})
-							if err == ErrWrongLeader {
+							if err == common.ErrWrongLeader {
 								kv.log.Debugf("KVServer %d ShardPuller: want to send InstallShardCmd to peer, but im not leader!!",
 									kv.me)
 							}
 							break
-						} else if reply.Err == ErrDiffConf {
+						} else {
 							kv.log.Warnf("KVServer %d ShardPuller: send PullShard to group %d failed, err: %v, our %d != %d",
 								kv.me, groupId, reply.Err, confNum, reply.ConfNum)
 						}
@@ -171,7 +239,7 @@ func (kv *ShardKV) shardEraser() {
 			}
 			kv.mu.RLock()
 
-			shards := kv.getShards(WAITING)
+			shards := kv.getShards(master.WAITING)
 			if len(shards) == 0 {
 				kv.mu.RUnlock()
 				continue
@@ -179,7 +247,7 @@ func (kv *ShardKV) shardEraser() {
 
 			shardsByExOwner := make(map[int][]int)
 			for _, shard := range shards {
-				if shard.Status != WAITING {
+				if shard.Status != master.WAITING {
 					continue
 				}
 				if _, ok := shardsByExOwner[shard.ExOwner]; !ok {
@@ -201,19 +269,19 @@ func (kv *ShardKV) shardEraser() {
 					args := EraseShardArgs {
 						BaseArgs: BaseArgs{
 							ConfNum: confNum,
+							Gid: groupId,
 						},
 						Shards: shardsToErase,
 					}
 					reply := EraseShardReply{}
 
-					ends, ok := kv.ends[groupId]
+					nodesOfGroup, ok := kv.prevConfig.Groups[groupId]
 					if !ok {
-						log.Printf("no ends found by gid %d", groupId)
+						kv.log.Errorf("no node found by gid %d", groupId)
 						return
 					}
-
-					for i, end := range ends {
-						if ok := end.Call(fmt.Sprintf("Replica-%d-%d.EraseShard", groupId, i), &args, &reply); ok && reply.Err == OK {
+					for _, node := range nodesOfGroup {
+						if ok := kv.rpcFunc(netw.ApiEraseShard, &args, &reply, node.NodeId); ok && reply.Err == common.OK {
 							kv.log.Infof("KVServer %d ShardEraser: send EraseShard to group %d success, raft start StopWaitingShardCmd ", kv.me, groupId)
 							err := kv.raftStartCmdNoWait(StopWaitingShardCmd {
 								CmdBase: &CmdBase {
@@ -222,12 +290,12 @@ func (kv *ShardKV) shardEraser() {
 								Shards:  shardsToErase,
 								ConfNum: confNum,
 							})
-							if err == ErrWrongLeader {
+							if err == common.ErrWrongLeader {
 								kv.log.Debugf("KVServer %d ShardEraser: want to send StopWaitingShardCmd to peer, but im not leader!!",
 									kv.me)
 							}
 							break
-						} else if reply.Err == ErrDiffConf {
+						} else {
 							kv.log.Warnf("KVServer %d ShardEraser: send EraseShard to group %d failed, err: %v, our %d != %d",
 								kv.me, groupId, reply.Err, confNum, reply.ConfNum)
 						}
@@ -245,7 +313,7 @@ func (kv *ShardKV) shardEraser() {
 }
 
 
-func (kv *ShardKV) getShards(status ShardStatus) []*Shard {
+func (kv *ShardKV) getShards(status master.ShardStatus) []*Shard {
 	shards := make([]*Shard, 0)
 	for _, shard := range kv.shardDB {
 		if shard == nil || shard.Status != status {
@@ -257,19 +325,19 @@ func (kv *ShardKV) getShards(status ShardStatus) []*Shard {
 	return shards
 }
 
-func (kv *ShardKV) executeGet(key string) (string, Err) {
-	shardIdx := key2shard(key)
+func (kv *ShardKV) executeGet(key string) ([]byte, common.Err) {
+	shardIdx := master.Key2shard(key)
 	shard := kv.shardDB[shardIdx]
-	if kv.currConfig.Shards[shardIdx] != kv.gid || !(shard.Status == SERVING || shard.Status == WAITING) {
-		return "", ErrWrongGroup
+	if kv.currConfig.Shards[shardIdx] != kv.gid || !(shard.Status == master.SERVING || shard.Status == master.WAITING) {
+		return nil, common.ErrWrongGroup
 	}
 	fullKey := fmt.Sprintf(ShardUserDataPattern, shard.Idx, key)
 	val, err := shard.Store.Get(fullKey)
 	if err != nil  {
-		return "", ErrFailed
+		return nil, common.ErrFailed
 	} else if val == nil {
-		return "",ErrNoKey
+		return nil, common.ErrNoKey
 	} else {
-		return string(val), OK
+		return val, common.OK
 	}
 }

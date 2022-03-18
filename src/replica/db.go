@@ -5,6 +5,8 @@ type Store interface {
 	Get(key string) ([]byte, error)
 	Put(key string, val []byte) error
 	Append(key string, val []byte) error
+	Delete(key string) error
+	Size(prefixes []string) (int64, error)
 
 	Snapshot() ([]byte, error)
 	SnapshotShard(shardId int) ([]byte, error)
@@ -14,17 +16,24 @@ type Store interface {
 	Clear(prefix string) error
 
 	Close()
+
+	DeleteFile()
 }
 
-const KeyLastApplied = "Server:LastApplied"
-const KeyCurrConfig = "Server:CurrConfig"
-const KeyPrevConfig = "Server:PrevConfig"
+const KeyNodeGroup = "Node:Groups"
+
+const KeyReplicaPrefix = "Replica:%d"
+const KeyLastApplied = "Replica:%d:LastApplied"
+const KeyCurrConfig = "Replica:%d:CurrConfig"
+const KeyPrevConfig = "Replica:%d:PrevConfig"
+const KeyStatus = "Replica:%d:Status"
 
 const (
-	ShardBasePrefix = "%d:"
-	ShardUserDataPrefix = "%d:U:"
-	ShardUserDataPattern = "%d:U:%s"
-	ShardMetaPrefix = "%d:M:%s"
-	ShardDupPrefix = "%d:D:%d"
+	ShardBasePrefix = "%dS:"
+	ShardUserDataPrefix = "%dS:U:"
+	ShardUserDataPattern = "%dS:U:%s"
+	ShardMetaPrefix = "%dS:M:%s"
+	ShardDupPrefix = "%dS:D:%d"
+	ShardVersion = "%dS:V"
 )
 

@@ -8,18 +8,18 @@ import (
 )
 
 func InitLogger(level string, appName string) (*log.Logger, error) {
+	logger := log.New()
 	switch strings.ToLower(level) {
-	case "trace": log.SetLevel(log.TraceLevel)
-	case "debug": log.SetLevel(log.DebugLevel)
-	case "info": log.SetLevel(log.InfoLevel)
-	case "warn": log.SetLevel(log.WarnLevel)
-	case "error": log.SetLevel(log.ErrorLevel)
-	case "fatal": log.SetLevel(log.FatalLevel)
-	case "panic": log.SetLevel(log.PanicLevel)
+	case "trace": logger.SetLevel(log.TraceLevel)
+	case "debug": logger.SetLevel(log.DebugLevel)
+	case "info": logger.SetLevel(log.InfoLevel)
+	case "warn": logger.SetLevel(log.WarnLevel)
+	case "error": logger.SetLevel(log.ErrorLevel)
+	case "fatal": logger.SetLevel(log.FatalLevel)
+	case "panic": logger.SetLevel(log.PanicLevel)
 	default:
 		return nil, fmt.Errorf("unsupported log level %s", level)
 	}
-	logger := log.New()
 	logger.SetFormatter(&MyLogFormatter{AppName: appName})
 	return logger, nil
 }

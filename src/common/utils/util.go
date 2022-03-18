@@ -1,4 +1,4 @@
-package raft
+package utils
 
 import (
 	"fmt"
@@ -72,4 +72,16 @@ func SizeOfFile(path string) int {
 		log.Fatalf("file path %s is directory, expected a file\n", path)
 	}
 	return int(stat.Size())
+}
+
+func DeleteFile(path string) {
+	if err := os.Remove(path); err != nil {
+		fmt.Printf("cannot delete file %s: %v\n", path, err)
+	}
+}
+
+func DeleteDir(path string) {
+	if err := os.RemoveAll(path); err != nil {
+		fmt.Printf("cannot delete dir %s: %v\n", path, err)
+	}
 }

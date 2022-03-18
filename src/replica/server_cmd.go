@@ -1,8 +1,9 @@
 package replica
 
 import (
-	"mrkv/src/raft"
+	"mrkv/src/common"
 	"mrkv/src/master"
+	"mrkv/src/raft"
 )
 
 type Cmd interface {
@@ -32,7 +33,7 @@ func (c *CmdBase) GetCid() int64 {
 type Op struct {
 	Type  string
 	Key   string
-	Value string
+	Value []byte
 }
 
 type EmptyCmd struct {
@@ -69,22 +70,22 @@ type StopWaitingShardCmd struct {
 
 type ConfCmd struct {
 	*CmdBase
-	Config master.Config
+	Config master.ConfigV1
 }
 
 type ApplyRes interface {
-	GetErr()		Err
+	GetErr()		common.Err
 	GetCmdType()	CmdType
 	GetIdx()		int
 }
 
 type ApplyResBase struct {
-	err  	Err
+	err  	common.Err
 	cmdType CmdType
 	idx int
 }
 
-func (arb *ApplyResBase) GetErr() Err {
+func (arb *ApplyResBase) GetErr() common.Err {
 	return arb.err
 }
 
@@ -100,7 +101,7 @@ type KVCmdApplyRes struct {
 	*ApplyResBase
 
 	op  Op
-	val string
+	val []byte
 	ok  bool
 }
 

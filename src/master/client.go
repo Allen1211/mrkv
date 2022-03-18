@@ -12,6 +12,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"mrkv/src/common"
 	"mrkv/src/netw"
 )
 
@@ -49,7 +50,36 @@ func MakeClerk(servers []*netw.ClientEnd) *Clerk {
 	return ck
 }
 
-func (ck *Clerk) Query(num int) Config {
+func (ck *Clerk) Heartbeat(nodeId int, addr string, groups map[int]*GroupInfo) HeartbeatReply {
+	args := &HeartbeatArgs{}
+	args.NodeId = nodeId
+	args.Addr = addr
+	args.Groups = groups
+	args.Cid = ck.id
+	args.Seq = ck.nextSeq()
+	i := ck.GetLeader()
+	for {
+		var reply HeartbeatReply
+		if ok := ck.servers[i].Call(fmt.Sprintf("Master%d.Heartbeat", i), args, &reply); !ok {
+			log.Debugf("Client %d Fail to Send RPC to server %d", ck.id, i)
+			i = (i + 1) % len(ck.servers)
+			continue
+		}
+		if reply.Err == ErrFailed {
+			log.Errorf("Client %d SendRPC Err: %s", ck.id, reply.Err)
+			continue
+		} else if reply.Err == ErrWrongLeader || reply.WrongLeader {
+			log.Debugf("Client SendRPC Err: %d is Not Leader, try another server", i)
+			i = (i + 1) % len(ck.servers)
+			continue
+		}
+		ck.SetLeader(i)
+
+		return reply
+	}
+}
+
+func (ck *Clerk) Query(num int) ConfigV1 {
 	args := &QueryArgs{}
 	args.Num = num
 	args.Cid = ck.id
@@ -76,10 +106,10 @@ func (ck *Clerk) Query(num int) Config {
 	}
 }
 
-func (ck *Clerk) Join(servers map[int][]string) {
+func (ck *Clerk) Join(nodes map[int][]int) common.Err {
 	args := &JoinArgs{}
 	// Your code here.
-	args.Servers = servers
+	args.Nodes = nodes
 	args.Cid = ck.id
 	args.Seq = ck.nextSeq()
 
@@ -100,14 +130,13 @@ func (ck *Clerk) Join(servers map[int][]string) {
 			continue
 		}
 		ck.SetLeader(i)
-		return
+		return reply.Err
 	}
 
 }
 
-func (ck *Clerk) Leave(gids []int) {
+func (ck *Clerk) Leave(gids []int) common.Err {
 	args := &LeaveArgs{}
-	// Your code here.
 	args.GIDs = gids
 	args.Cid = ck.id
 	args.Seq = ck.nextSeq()
@@ -122,6 +151,7 @@ func (ck *Clerk) Leave(gids []int) {
 		}
 		if reply.Err == ErrFailed {
 			log.Errorf("Client %d SendRPC Err: %s", ck.id, reply.Err)
+			i = (i + 1) % len(ck.servers)
 			continue
 		} else if reply.Err == ErrWrongLeader || reply.WrongLeader {
 			log.Debugf("Client SendRPC Err: %d is Not Leader, try another server", i)
@@ -129,7 +159,7 @@ func (ck *Clerk) Leave(gids []int) {
 			continue
 		}
 		ck.SetLeader(i)
-		return
+		return reply.Err
 	}
 }
 
@@ -158,5 +188,30 @@ func (ck *Clerk) Move(shard int, gid int) {
 		}
 		ck.SetLeader(i)
 		return
+	}
+}
+
+
+
+func (ck *Clerk) Show(args ShowArgs) ShowReply {
+	i := ck.GetLeader()
+	for {
+		var reply ShowReply
+		if ok := ck.servers[i].Call(fmt.Sprintf("Master%d.Show", i), args, &reply); !ok {
+			log.Debugf("Client %d Fail to Send RPC to server %d", ck.id, i)
+			i = (i + 1) % len(ck.servers)
+			continue
+		}
+		if reply.Err == ErrFailed {
+			log.Errorf("Client %d SendRPC Err: %s", ck.id, reply.Err)
+			continue
+		} else if reply.Err == ErrWrongLeader {
+			log.Debugf("Client SendRPC Err: %d is Not Leader, try another server", i)
+			i = (i + 1) % len(ck.servers)
+			continue
+		}
+		ck.SetLeader(i)
+
+		return reply
 	}
 }
