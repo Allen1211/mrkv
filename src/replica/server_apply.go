@@ -147,7 +147,6 @@ func (kv *ShardKV) applyKVCmd(cmd KVCmd) ([]byte, bool, common.Err, bool) {
 			return	nil, false, common.ErrDuplicate, false
 		}
 		kv.log.Debugf("KVServer %d update CkMaxSeq to %d, cmd=%v", kv.me, cmd.Seq, *cmd.CmdBase)
-
 	}
 
 	db := shard.Store

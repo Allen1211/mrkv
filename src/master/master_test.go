@@ -146,12 +146,11 @@ func Test5(t *testing.T) {
 
 	clerk := MakeClerk(masters)
 
-	// clerk.Join(map[int][]int{
-	// 	300: {1, 2, 4},
-	// })
-	// fmt.Println(3)
-	// time.Sleep(10*time.Second)
-	// 3
+	clerk.Join(map[int][]int{
+		300: {1, 2, 4},
+	})
+	fmt.Println(3)
+	time.Sleep(5*time.Second)
 
 	for i := 0; i < 5; i++ {
 		fmt.Println("###################")
@@ -161,34 +160,34 @@ func Test5(t *testing.T) {
 			200: {2, 3, 4},
 		})
 		fmt.Println(123)
-		time.Sleep(10*time.Second)
+		time.Sleep(5*time.Second)
 
 		clerk.Leave([]int{200})
 		fmt.Println(13)
-		time.Sleep(10*time.Second)
+		time.Sleep(5*time.Second)
 
 		clerk.Leave([]int{100})
 		fmt.Println(3)
-		time.Sleep(10*time.Second)
+		time.Sleep(5*time.Second)
 
 		clerk.Join(map[int][]int{
 			200: {1, 2, 3},
 		})
 		fmt.Println(23)
-		time.Sleep(10*time.Second)
+		time.Sleep(5*time.Second)
 
 		clerk.Join(map[int][]int{
 			100: {2, 3, 5},
 		})
 		fmt.Println(123)
-		time.Sleep(10*time.Second) // 83
+		time.Sleep(5*time.Second) // 83
 
 		clerk.Leave([]int{200})   // 84
 		fmt.Println(13)
-		time.Sleep(10*time.Second)
+		time.Sleep(5*time.Second)
 
 		clerk.Leave([]int{100})
 		fmt.Println(3)
-		time.Sleep(10*time.Second)
+		time.Sleep(5*time.Second)
 	}
 }

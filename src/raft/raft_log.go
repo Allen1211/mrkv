@@ -3,6 +3,7 @@ package raft
 import (
 	"bytes"
 	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -43,174 +44,9 @@ type raftlog interface {
 	sync()
 
 	clear()
+	close()
 }
 
-type inMemoryRaftLog struct {
-	logger	*logrus.Logger
-
-	cpIdx 	int
-	cpTerm 	int
-	logs 	[]LogEntry
-}
-
-func makeInMemoryRaftLog(cpIdx, cpTerm int, rf *Raft) raftlog {
-	rl := new(inMemoryRaftLog)
-	rl.cpIdx = cpIdx
-	rl.cpTerm = cpTerm
-	rl.logs = make([]LogEntry, 0)
-	rl.logger = rf.logger
-	return rl
-}
-
-func (rl *inMemoryRaftLog) clear()  {
-
-}
-
-func (rl *inMemoryRaftLog) CpIdx() int {
-	return rl.cpIdx
-}
-
-func (rl *inMemoryRaftLog) CpTerm() int {
-	return rl.cpTerm
-}
-
-func (rl *inMemoryRaftLog) CpLSN() uint64 {
-	return 0
-}
-
-func (rl *inMemoryRaftLog) checkpoint() (int, int) {
-	return rl.cpIdx, rl.cpTerm
-}
-
-func (rl *inMemoryRaftLog) idxAt(idx int) LogEntry {
-	pos := idx - rl.cpIdx - 1
-	return rl.posAt(pos)
-}
-
-func (rl *inMemoryRaftLog) posAt(pos int) LogEntry {
-	return rl.logs[pos]
-}
-
-func (rl *inMemoryRaftLog) first() LogEntry {
-	return rl.logs[0]
-}
-
-func (rl *inMemoryRaftLog) last() LogEntry {
-	return rl.logs[len(rl.logs)-1]
-}
-
-func (rl *inMemoryRaftLog) lastIdxTerm() (int, int) {
-	if rl.length() == 0 {
-		return rl.cpIdx, rl.cpTerm
-	} else {
-		last := rl.last()
-		return last.Index, last.Term
-	}
-}
-
-func (rl *inMemoryRaftLog) slice(from, to int) []LogEntry {
-	if to != -1 {
-		return rl.logs[from:to]
-	} else {
-		return rl.logs[from:]
-	}
-}
-
-func (rl *inMemoryRaftLog) length() int {
-	return len(rl.logs)
-}
-
-func (rl *inMemoryRaftLog) append(ents ...LogEntry) bool {
-	rl.logs = append(rl.logs, ents...)
-	return true
-}
-
-func (rl *inMemoryRaftLog) truncateAppend(ents ...LogEntry) bool {
-	flag := false
-	for _, e := range ents {
-		if rl.posOf(e.Index) < 0 {
-			continue
-		}
-		if rl.posOf(e.Index) < rl.length() && rl.idxAt(e.Index).Term != e.Term {
-			flag = true
-		}
-		if rl.posOf(e.Index) < rl.length()  {
-			if flag {
-				rl.logs[rl.posOf(e.Index)] = e
-			}
-		} else {
-			rl.logs = append(rl.logs, e)
-		}
-	}
-	return true
-}
-
-func (rl *inMemoryRaftLog) commitTo(idx int) {
-}
-
-func (rl *inMemoryRaftLog) applyTo(idx int) {
-}
-
-func (rl *inMemoryRaftLog) compactTo(idx int, term int, lsn uint64) {
-	lastLogIdx, lastLogTerm := rl.lastIdxTerm()
-	if term == -1 {
-		if idx > lastLogIdx {
-			term = lastLogTerm
-		} else {
-			term = rl.idxAt(idx).Term
-		}
-	}
-	if idx > lastLogIdx {
-		rl.logs = make([]LogEntry, 0)
-	} else {
-		rl.logs = rl.slice(idx - rl.cpIdx, -1)
-	}
-	rl.cpIdx = idx
-	rl.cpTerm = term
-}
-
-func (rl *inMemoryRaftLog) dump() []byte {
-	w := new(bytes.Buffer)
-	e := labgob.NewEncoder(w)
-	e.Encode(rl.logs)
-	e.Encode(rl.cpIdx)
-	e.Encode(rl.cpTerm)
-	data := w.Bytes()
-	return data
-}
-
-func (rl *inMemoryRaftLog) restore(data []byte) {
-	if data == nil || len(data) < 1 {
-		return
-	}
-	r := bytes.NewBuffer(data)
-	d := labgob.NewDecoder(r)
-	var cpIdx, cpTerm int
-	var logs []LogEntry
-	if d.Decode(&logs) != nil ||
-		d.Decode(&cpIdx) != nil ||
-		d.Decode(&cpTerm) != nil {
-		log.Fatalln("fail to decode log state")
-	} else {
-		rl.logs = logs
-		rl.cpIdx = cpIdx
-		rl.cpTerm = cpTerm
-	}
-
-	// fmt.Printf("restore log: %v\n", rl.logs)
-}
-
-func (rl *inMemoryRaftLog) sync()  {
-
-}
-
-func (rl *inMemoryRaftLog) posOf(idx int) int {
-	return idx - rl.cpIdx - 1
-}
-
-func (rl *inMemoryRaftLog) idxOf(pos int) int {
-	return pos + rl.cpIdx + 1
-}
 
 type WriteAheadLogEntry struct {
 	StartLSN 	uint64
@@ -342,13 +178,18 @@ func (rl *writeAheadRaftLog) append(ents ...LogEntry) bool {
 	for i, e := range ents {
 		encoder := labgob.NewEncoder(buf)
 		if err = encoder.Encode(e); err != nil {
-			log.Fatal(err)
+			rl.logger.Errorf(err.Error())
+			return false
 		}
 		var startLSN, length uint64
 		retry:
 		if startLSN, length,  err = rl.wal.Append(buf.Bytes()); err != nil {
-			if err != ErrLogFileFull {
-				log.Fatal(err)
+			if err == os.ErrClosed {
+				return false
+			}
+			if err != ErrLogFileFull{
+				rl.logger.Errorf(err.Error())
+				return false
 			}
 			cpAtLeastLSN := rl.wal.cpLSN + (length - rl.wal.remain())
 			rl.mu.Unlock()
@@ -368,6 +209,9 @@ func (rl *writeAheadRaftLog) append(ents ...LogEntry) bool {
 		lgs[i].LogEntry = e
 		lgs[i].StartLSN = startLSN
 		lgs[i].EndLSN = startLSN + length
+		if rl.wal.lsn2ofs(lgs[i].EndLSN) < int64(SizeOfLogFileHeader()) {
+			lgs[i].EndLSN += SizeOfLogFileHeader()
+		}
 	}
 	rl.logs = append(rl.logs, lgs...)
 
@@ -512,6 +356,10 @@ func (rl *writeAheadRaftLog) sync()  {
 	// if err := rl.wal.Sync(); err != nil {
 	// 	log.Fatal(err)
 	// }
+}
+
+func (rl *writeAheadRaftLog) close()  {
+	rl.wal.close()
 }
 
 func (rl *writeAheadRaftLog) posOf(idx int) int {

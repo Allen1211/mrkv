@@ -1,5 +1,11 @@
 package master
 
+import (
+	"fmt"
+
+	"mrkv/src/netw"
+)
+
 func (sm *ShardMaster) createGroup2Nodes() map[int][]int {
 	res := map[int][]int{}
 	for _, node := range sm.nodes {
@@ -78,8 +84,20 @@ func (sm *ShardMaster) delWaitChLock(idx int) {
 
 func (sm *ShardMaster) waitAppliedTo(target int) {
 	sm.appliedCond.L.Lock()
-	for sm.lastApplied < target {
+	for sm.lastApplied < target && !sm.Killed() {
 		sm.appliedCond.Wait()
 	}
 	sm.appliedCond.L.Unlock()
+}
+
+func (sm *ShardMaster) makeEndAndCall(addr string, nodeId int, api string, args interface{}, reply interface{}) bool {
+	end := netw.MakeRPCEnd("Node", "tcp", addr)
+	defer end.Close()
+	ok := end.Call(sm.getCallName(api, nodeId), args, reply)
+	return ok
+
+}
+
+func (sm *ShardMaster) getCallName(api string, nodeId int) string {
+	return fmt.Sprintf("Node-%d.%s", nodeId, api)
 }

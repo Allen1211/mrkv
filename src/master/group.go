@@ -44,12 +44,21 @@ func (s ShardStatus) String() string {
 }
 
 func Key2shard(key string) int {
-	shard := 0
-	if len(key) > 0 {
-		shard = int(key[0])
-	}
+	shard := hashString(key)
+	// if len(key) > 0 {
+	// 	shard = int(key[0])
+	// }
 	shard %= NShards
 	return shard
+}
+
+func hashString(s string) int {
+	seed := 131
+	hash := 0
+	for _, c := range s {
+		hash = hash*seed + int(c)
+	}
+	return hash
 }
 
 type NodeStatus int

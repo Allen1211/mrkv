@@ -21,6 +21,9 @@ type API interface {
 	ShowNodes(nodeIds []int)		([]master.ShowNodeRes, common.Err)
 	ShowGroups(gids []int)			([]master.ShowGroupRes, common.Err)
 	ShowShards(gids []int)			([]master.ShowShardRes, common.Err)
+	ShowMaster()	[]master.ShowMasterReply
+
+	TransferLeader(gid int, target int) common.Err
 }
 
 
@@ -98,4 +101,10 @@ func (c *MrKVClient) ShowShards(gids []int)	([]master.ShowShardRes, common.Err) 
 	return reply.Shards, reply.Err
 }
 
+func (c *MrKVClient) ShowMaster() []master.ShowMasterReply {
+	return c.mc.ShowMaster()
+}
 
+func (c *MrKVClient) TransferLeader(gid, target int) common.Err {
+	return c.kvc.TransferLeader(gid, target)
+}

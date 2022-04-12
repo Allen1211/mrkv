@@ -10,13 +10,3 @@ func (kv *ShardKV) rpcFuncImpl(apiName string, args interface{}, reply interface
 	b.SetGid(kv.gid)
 	return kv.rpcFunc(apiName, args, reply, ids[0], kv.gid)
 }
-
-func (kv *ShardKV) getNodeIdByPeer(peer int) (int, bool) {
-	groups := kv.currConfig.Groups[kv.gid]
-	for _, group := range groups {
-		if group.RaftPeer == peer {
-			return  group.NodeId, true
-		}
-	}
-	return 0, false
-}

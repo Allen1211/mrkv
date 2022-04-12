@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
+	"sync"
 	"sync/atomic"
 
 	log "github.com/sirupsen/logrus"
@@ -214,4 +215,26 @@ func (ck *Clerk) Show(args ShowArgs) ShowReply {
 
 		return reply
 	}
+}
+
+func (ck *Clerk) ShowMaster() []ShowMasterReply {
+	var wg sync.WaitGroup
+	res := make([]ShowMasterReply, len(ck.servers))
+	wg.Add(len(ck.servers))
+	for i := 0; i < len(ck.servers); i++ {
+		go func(j int) {
+			defer wg.Done()
+			var reply ShowMasterReply
+			if ok := ck.servers[j].Call(fmt.Sprintf("Master%d.ShowMaster", j), ShowMasterArgs{}, &reply); !ok {
+				// log.Debugf("Client %d Fail to Send RPC to server %d", ck.id, j)
+
+				reply.Status = "Disconnected"
+				reply.Id = j
+			}
+			reply.Addr = ck.servers[j].Addr
+			res[j] = reply
+		}(i)
+	}
+	wg.Wait()
+	return res
 }

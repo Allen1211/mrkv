@@ -7,6 +7,8 @@ const (
 	ApiRequestVote = "RequestVote"
 	ApiInstallSnapshot = "InstallSnapshot"
 	ApiReadIndexFromFollower = "ReadIndexFromFollower"
+	ApiTimeoutNow = "TimeoutNow"
+	ApiTransferLeader = "TransferLeader"
 
 	ApiGet = "Get"
 	ApiPutAppend = "PutAppend"

@@ -205,6 +205,7 @@ type ShowNodeRes struct {
 	Id			int
 	Addr		string
 	Groups		[]int
+	IsLeader    map[int]bool
 	Status		string
 }
 
@@ -260,4 +261,26 @@ type ShardInfo struct {
 	Capacity	uint64
 	RangeStart	string
 	RangeEnd	string
+}
+
+type TransferLeaderArgs struct {
+	Gid    int
+	Target int
+}
+
+type TransferLeaderReply struct {
+	Err		common.Err
+}
+
+type ShowMasterArgs struct {
+
+}
+
+type ShowMasterReply struct {
+	Id				int
+	Addr			string
+	IsLeader		bool
+	LatestConfNum	int
+	Size			int64
+	Status			string
 }

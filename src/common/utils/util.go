@@ -2,18 +2,12 @@ package utils
 
 import (
 	"fmt"
+	"io/fs"
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 )
-
-func Min(x, y int) int {
-	if x < y {
-		return x
-	} else {
-		return y
-	}
-}
 
 func CheckAndMkdir(dir string) error {
 	stat, err := os.Stat(dir)
@@ -84,4 +78,18 @@ func DeleteDir(path string) {
 	if err := os.RemoveAll(path); err != nil {
 		fmt.Printf("cannot delete dir %s: %v\n", path, err)
 	}
+}
+
+func SizeOfDir(path string) int64 {
+	res := int64(0)
+	err := filepath.Walk(path, func(path string, info fs.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			res += info.Size()
+		}
+		return err
+	})
+	if err != nil {
+		return -1
+	}
+	return res
 }

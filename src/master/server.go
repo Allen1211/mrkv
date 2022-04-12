@@ -1,15 +1,19 @@
 package master
 
 import (
+	"errors"
 	"fmt"
 	"log"
+	"net"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
 
 	"mrkv/src/common"
+	"mrkv/src/common/utils"
 	"mrkv/src/master/etc"
 	"mrkv/src/netw"
 	"mrkv/src/raft"
@@ -19,6 +23,8 @@ type ShardMaster struct {
 	mu      sync.RWMutex
 	me      int
 	servers []*netw.ClientEnd
+	listener net.Listener
+	persister *raft.DiskPersister
 	rf      *raft.Raft
 	applyCh chan raft.ApplyMsg
 
@@ -33,6 +39,7 @@ type ShardMaster struct {
 	appliedCond *sync.Cond
 
 	KilledC chan int
+	killed  int32
 
 	log		*logrus.Logger
 }
@@ -141,6 +148,7 @@ func (sm *ShardMaster) applyer() {
 			} else {
 				reply, ok = sm.applyOp(op, msg.CommandIndex)
 			}
+
 			res := &OpApplyRes {
 				op:  op,
 				res: reply,
@@ -152,6 +160,11 @@ func (sm *ShardMaster) applyer() {
 			sm.lastApplied = msg.CommandIndex
 			sm.appliedCond.Broadcast()
 
+			sm.mu.Unlock()
+			if term, isLeader := sm.rf.GetState(); !isLeader || term != msg.CommandTerm {
+				continue
+			}
+			sm.mu.Lock()
 			waitC := sm.getWaitCh(res.idx)
 			sm.mu.Unlock()
 
@@ -195,7 +208,7 @@ func (sm *ShardMaster) raftStart(op Op) (res interface{}, ok bool, err string) {
 				sm.me, op, opRes.op)
 			return nil, false, ErrFailed
 		}
-		sm.log.Debugf("ShardMaster %d receive res %v from waiting channel %v", sm.me, opRes.res, opRes.idx)
+		// sm.log.Debugf("ShardMaster %d receive res %v from waiting channel %v", sm.me, opRes.res, opRes.idx)
 		return opRes.res, opRes.ok, OK
 
 	case <-time.After(time.Second * 1):
@@ -205,6 +218,9 @@ func (sm *ShardMaster) raftStart(op Op) (res interface{}, ok bool, err string) {
 }
 
 func (sm *ShardMaster) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) (e error) {
+	if sm.Killed() {
+		return errors.New(string(common.ErrNodeClosed))
+	}
 
 	if _, isLeader := sm.rf.GetState(); !isLeader {
 		reply.Err = ErrWrongLeader
@@ -241,12 +257,16 @@ func (sm *ShardMaster) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) (e 
 			return
 		}
 	}
-	sm.log.Debugf("ShardMaster %d heartbeat command reply: %v", sm.me, *reply)
+	// sm.log.Debugf("ShardMaster %d heartbeat command reply: %v", sm.me, *reply)
 
 	return
 }
 
 func (sm *ShardMaster) Join(args *JoinArgs, reply *JoinReply) (e error)  {
+	if sm.Killed() {
+		return errors.New(string(common.ErrNodeClosed))
+	}
+
 	op := OpJoinCmd {
 		OpBase: &OpBase{
 			Type:  OpJoin,
@@ -278,6 +298,10 @@ func (sm *ShardMaster) Join(args *JoinArgs, reply *JoinReply) (e error)  {
 }
 
 func (sm *ShardMaster) Leave(args *LeaveArgs, reply *LeaveReply) (e error) {
+	if sm.Killed() {
+		return errors.New(string(common.ErrNodeClosed))
+	}
+
 	op := OpLeaveCmd {
 		OpBase: &OpBase {
 			Type:  OpLeave,
@@ -309,6 +333,10 @@ func (sm *ShardMaster) Leave(args *LeaveArgs, reply *LeaveReply) (e error) {
 }
 
 func (sm *ShardMaster) Move(args *MoveArgs, reply *MoveReply) (e error)  {
+	if sm.Killed() {
+		return errors.New(string(common.ErrNodeClosed))
+	}
+
 	op := OpMoveCmd{
 		OpBase: &OpBase {
 			Type:  OpMove,
@@ -330,6 +358,10 @@ func (sm *ShardMaster) Move(args *MoveArgs, reply *MoveReply) (e error)  {
 }
 
 func (sm *ShardMaster) Query(args *QueryArgs, reply *QueryReply) (e error) {
+	if sm.Killed() {
+		return errors.New(string(common.ErrNodeClosed))
+	}
+
 	op := OpQueryCmd {
 		OpBase: &OpBase{
 			Type:  OpQuery,
@@ -353,6 +385,11 @@ func (sm *ShardMaster) Query(args *QueryArgs, reply *QueryReply) (e error) {
 		sm.waitAppliedTo(readIdx)
 		sm.log.Debugf("ShardMaster %d query ReadIndex %d success", sm.me, readIdx)
 
+		if sm.Killed() {
+			reply.Err = common.ErrNodeClosed
+			return
+		}
+
 		sm.mu.RLock()
 		reply.Config = sm.configs[len(sm.configs)-1]
 		sm.mu.RUnlock()
@@ -375,6 +412,10 @@ func (sm *ShardMaster) Query(args *QueryArgs, reply *QueryReply) (e error) {
 }
 
 func (sm *ShardMaster) Show(args *ShowArgs, reply *ShowReply) (e error) {
+	if sm.Killed() {
+		return errors.New(string(common.ErrNodeClosed))
+	}
+
 	op := OpShowCmd {
 		OpBase: &OpBase{
 			Type:  OpShow,
@@ -386,6 +427,11 @@ func (sm *ShardMaster) Show(args *ShowArgs, reply *ShowReply) (e error) {
 		sm.log.Debugf("ShardMaster %d show ReadIndex %d start to wait", sm.me, readIdx)
 		sm.waitAppliedTo(readIdx)
 		sm.log.Debugf("ShardMaster %d show ReadIndex %d success", sm.me, readIdx)
+
+		if sm.Killed() {
+			reply.Err = common.ErrNodeClosed
+			return
+		}
 
 		sm.mu.RLock()
 		r, e := sm.executeShow(args)
@@ -407,6 +453,26 @@ func (sm *ShardMaster) Show(args *ShowArgs, reply *ShowReply) (e error) {
 		*reply = *r
 	}
 	sm.log.Debugf("ShardMaster %d show command reply: %v", sm.me, *reply)
+	return
+}
+
+func (sm *ShardMaster) ShowMaster(args *ShowMasterArgs, reply *ShowMasterReply) (e error) {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	if sm.Killed() {
+		reply.Id = sm.me
+		reply.Addr = sm.servers[sm.me].Addr
+		reply.Status = "Disconnected"
+		return
+	}
+
+	_, reply.IsLeader = sm.rf.GetState()
+	reply.Id = sm.me
+	reply.Addr = sm.servers[sm.me].Addr
+	reply.LatestConfNum = sm.getLatestConfig().Num
+	reply.Size = int64(sm.persister.RaftStateSize() + sm.persister.SnapshotSize())
+	reply.Status = "Normal"
 	return
 }
 
@@ -696,7 +762,7 @@ func (sm *ShardMaster) executeLeave(args *LeaveArgs) (reply *LeaveReply, err err
 		for _, ng := range ngs {
 			groupInfo := sm.nodes[ng.NodeId].Groups[gid]
 			groupInfo.Status = GroupLeaving
-			sm.log.Errorf("group %d in node %d status => GroupLeaving", gid, ng.NodeId)
+			sm.log.Infof("group %d in node %d status => GroupLeaving", gid, ng.NodeId)
 
 		}
 	}
@@ -808,14 +874,17 @@ func (sm *ShardMaster) executeShow(args *ShowArgs) (reply *ShowReply, err error)
 				continue
 			}
 			gids := make([]int, 0)
-			for gid, _ := range node.Groups {
+			isLeader := make(map[int]bool)
+			for gid, g := range node.Groups {
 				gids = append(gids, gid)
+				isLeader[gid] = g.IsLeader
 			}
 			info := ShowNodeRes {
 				Found: true,
 				Id: nodeId,
 				Addr: node.Addr,
 				Groups: gids,
+				IsLeader: isLeader,
 				Status: node.Status.String(),
 			}
 			reply.Nodes = append(reply.Nodes, info)
@@ -827,9 +896,6 @@ func (sm *ShardMaster) executeShow(args *ShowArgs) (reply *ShowReply, err error)
 		gids := make([]int, 0)
 		g2n := sm.createGroup2Nodes()
 		if len(args.GIDs) == 0 {
-			// for gid, _ := range config.Groups {
-			// 	gids = append(gids, gid)
-			// }
 			for gid, _ := range g2n {
 				gids = append(gids, gid)
 			}
@@ -1044,7 +1110,7 @@ func (sm *ShardMaster) nodeStatusUpdater() {
 			// }
 			sm.mu.Lock()
 			for _, node := range sm.nodes {
-				if node.Status == NodeNormal && time.Since(node.LastBeat) > time.Second * 10 {
+				if node.Status == NodeNormal && time.Since(node.LastBeat) >= time.Second * 3 {
 					node.Status = NodeDisconnect
 					sm.log.Infof("Node %d is disconnected", node.Id)
 				}
@@ -1054,11 +1120,108 @@ func (sm *ShardMaster) nodeStatusUpdater() {
 	}
 }
 
+func (sm *ShardMaster) leaderBalancer() {
+	for {
+		select {
+		case <-sm.KilledC:
+			sm.log.Infof("ShardMaster %d has been killed, stop nodeStatusUpdater loop", sm.me)
+			return
+		case <-time.After(time.Second * 2):
+			if _, isLeader := sm.rf.GetState(); !isLeader {
+				continue
+			}
+			sm.mu.RLock()
+			leaderCnt := map[int]int{}
+			minCnt, maxCnt := 2<<31-1, -1
+			for _, node := range sm.nodes {
+				if node.Status != NodeNormal {
+					continue
+				}
+				leaderCnt[node.Id] = 0
+				for _, g := range node.Groups {
+					if g.IsLeader {
+						leaderCnt[node.Id]++
+					}
+				}
+			}
+			for _, cnt := range leaderCnt {
+				if  cnt < minCnt {
+					minCnt = cnt
+				}
+				if cnt > maxCnt {
+					maxCnt = cnt
+				}
+			}
+			if maxCnt - minCnt >= 2 {
+
+				leaderGroup :=  map[int][]*GroupInfo{}
+				for nodeId, cnt := range leaderCnt {
+					if cnt == maxCnt {
+						for _, g := range sm.nodes[nodeId].Groups {
+							if g.IsLeader {
+								if leaderGroup[nodeId] == nil {
+									leaderGroup[nodeId] = make([]*GroupInfo, 0)
+								}
+								leaderGroup[nodeId] = append(leaderGroup[nodeId], g)
+							}
+						}
+					}
+				}
+				config := sm.getLatestConfig()
+				outer:
+				for nodeId, gs := range leaderGroup {
+					for _, g := range gs {
+						ngs := config.Groups[g.Id]
+						for _, ng := range ngs {
+							if ng.NodeId == nodeId {
+								continue
+							}
+							if leaderCnt[ng.NodeId] != minCnt {
+								continue
+							}
+							// transfer to ng.NodeId
+							sm.log.Infof("group %d can transfer leader to node %d peer %d", g.Id, ng.NodeId, ng.RaftPeer)
+							args := raft.TransferLeaderArgs {
+								RPCArgBase: &netw.RPCArgBase {
+									Gid:  g.Id,
+								},
+								Gid:    g.Id,
+								NodeId: ng.NodeId,
+							}
+							reply := raft.TransferLeaderReply{}
+							if ok := sm.makeEndAndCall(sm.nodes[nodeId].Addr, nodeId, netw.ApiTransferLeader, &args, &reply); !ok {
+								sm.log.Errorf("failed to call TransferLeader to node %d", nodeId)
+							} else {
+								sm.log.Infof("call TransferLeader success, reply: %s", reply.Err)
+							}
+							break outer
+						}
+					}
+				}
+			}
+
+			sm.mu.RUnlock()
+		}
+	}
+}
+
 func (sm *ShardMaster) Kill() {
-	sm.rf.Kill()
-	for i := 0; i < 2; i++ {
+	if sm.rf != nil {
+		sm.rf.Kill()
+	}
+	for i := 0; i < 4; i++ {
 		sm.KilledC <- 1
 	}
+	atomic.StoreInt32(&sm.killed, 1)
+	if sm.listener != nil {
+		if err := sm.listener.Close(); err != nil {
+			sm.log.Errorf("fail to close rpc listener: %v", err)
+		}
+	}
+}
+
+func (sm *ShardMaster) Killed() bool {
+	return atomic.LoadInt32(&sm.killed) == 1
 }
 
 func (sm *ShardMaster) Raft() *raft.Raft {
@@ -1066,10 +1229,17 @@ func (sm *ShardMaster) Raft() *raft.Raft {
 }
 
 func StartServer(conf etc.MasterConf) *ShardMaster {
-	sm := new(ShardMaster)
-	sm.me = conf.Raft.Me
+	_ = utils.CheckAndMkdir(conf.Raft.DataDir)
+	_ = utils.CheckAndMkdir(conf.Raft.WalDir)
 
+	sm := new(ShardMaster)
+	sm.me = conf.Serv.Me
 	sm.log, _ = common.InitLogger(conf.Serv.LogLevel, fmt.Sprintf("Master%d", sm.me))
+
+	if len(conf.Serv.Servers) < 2 {
+		// sm.log.Fatalf("raft requires at least 2 peer to work, given: %d", len(conf.Serv.Servers))
+		return nil
+	}
 
 	sm.configs = make([]ConfigV1, 1)
 	sm.configs[0].Groups = map[int][]ConfigNodeGroup{}
@@ -1080,18 +1250,19 @@ func StartServer(conf etc.MasterConf) *ShardMaster {
 	sm.opApplied = make(map[int]chan *OpApplyRes)
 	sm.appliedCond = sync.NewCond(&sync.Mutex{})
 	sm.ckMaxSeq = make(map[int64]int64)
-	sm.KilledC = make(chan int, 3)
+	sm.KilledC = make(chan int, 5)
 
 	sm.applyCh = make(chan raft.ApplyMsg)
 
-
-	snapshotPath := fmt.Sprintf("%s/snapshot-%d", conf.Raft.DataDir, conf.Raft.Me)
-	raftstatePath := fmt.Sprintf("%s/raftstate-%d", conf.Raft.DataDir, conf.Raft.Me)
+	snapshotPath := fmt.Sprintf("%s/snapshot-%d", conf.Raft.DataDir, conf.Serv.Me)
+	raftstatePath := fmt.Sprintf("%s/raftstate-%d", conf.Raft.DataDir, conf.Serv.Me)
 
 	persister, err := raft.MakeDiskPersister(snapshotPath, raftstatePath)
 	if err != nil {
 		sm.log.Fatalf("failed to make disk persister: %v", err)
+		return nil
 	}
+	sm.persister = persister
 
 	snapshot := persister.ReadSnapshot()
 	if snapshot == nil || len(snapshot) == 0 {
@@ -1099,14 +1270,15 @@ func StartServer(conf etc.MasterConf) *ShardMaster {
 	} else {
 		if err := sm.applySnapshot(snapshot); err != nil {
 			sm.log.Fatalf("failed to recover snapshot: %v", err)
+			return nil
 		}
 		sm.log.Infof("recover from snapshot, lastApplied: %d", sm.lastApplied)
 	}
 
-	logFileName := fmt.Sprintf(conf.Raft.WalDir + "/logfile%d", conf.Raft.Me)
+	logFileName := fmt.Sprintf(conf.Raft.WalDir + "/logfile%d", conf.Serv.Me)
 	logFileCap := conf.Raft.WalCap
 
-	sm.rf = raft.Make(sm.rpcFunc ,len(conf.Serv.Servers), conf.Raft.Me, persister, sm.applyCh, true,
+	sm.rf = raft.Make(sm.rpcFunc ,len(conf.Serv.Servers), conf.Serv.Me, persister, sm.applyCh, true,
 		logFileName, logFileCap, conf.Raft.LogLevel)
 
 	servers := make([]*netw.ClientEnd, len(conf.Serv.Servers))
@@ -1120,6 +1292,7 @@ func StartServer(conf etc.MasterConf) *ShardMaster {
 	go sm.applyer()
 	go sm.checkpointer()
 	go sm.nodeStatusUpdater()
+	go sm.leaderBalancer()
 
 	return sm
 }

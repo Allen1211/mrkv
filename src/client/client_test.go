@@ -4,9 +4,11 @@ import (
 	crand "crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
+	"mrkv/src/common"
 	"mrkv/src/netw"
 )
 
@@ -48,13 +50,33 @@ func Test2(t *testing.T) {
 	for i, addr := range servers {
 		masters[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), "tcp", addr)
 	}
-	ck := MakeUserClient(masters)
 
-	for i := 0; i < 1000; i++ {
-		k, v := fmt.Sprintf("%d", i), randstring(100)
-		ck.Put(k, []byte(v))
-		fmt.Println("success")
+	total, n := 1<<15, 16
+	per := total / n
+
+	begin := time.Now()
+
+	val :=  randstring(100)
+	var wg sync.WaitGroup
+	for j := 0; j < n; j++ {
+		wg.Add(1)
+		go func(begin int) {
+			ck := MakeUserClient(masters)
+			for i := begin; i < begin + per; i++ {
+				k, v := fmt.Sprintf("%d", i), val
+				reply := ck.Put(k, []byte(v))
+				if reply.Err != common.OK {
+					fmt.Println(reply.Err)
+				}
+			}
+			wg.Done()
+		}(j*per)
 	}
+	wg.Wait()
+
+	cost := time.Since(begin)
+	fmt.Println(cost.Seconds())
+
 }
 
 func Test3(t *testing.T) {
@@ -63,13 +85,29 @@ func Test3(t *testing.T) {
 	for i, addr := range servers {
 		masters[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), "tcp", addr)
 	}
-	ck := MakeUserClient(masters)
+	total, n := 1<<15, 16
+	per := total / n
 
-	for i := 0; i < 1000; i++ {
-		k := fmt.Sprintf("%d", i)
-		reply := ck.Get(k)
-		fmt.Println(reply.Err)
+	begin := time.Now()
+	var wg sync.WaitGroup
+	for j := 0; j < n; j++ {
+		wg.Add(1)
+		go func(begin int) {
+			ck := MakeUserClient(masters)
+			for i := begin; i < begin + per; i++ {
+				k := fmt.Sprintf("%d", i)
+				reply := ck.Get(k)
+				if reply.Err != common.OK {
+					fmt.Println(reply.Err)
+				}
+			}
+			wg.Done()
+		}(j*per)
 	}
+	wg.Wait()
+	cost := time.Since(begin)
+	fmt.Println(cost.Seconds())
+
 }
 
 func randstring(n int) string {
@@ -77,4 +115,36 @@ func randstring(n int) string {
 	crand.Read(b)
 	s := base64.URLEncoding.EncodeToString(b)
 	return s[0:n]
+}
+
+
+func TestNoStop(t *testing.T) {
+	servers := []string{":8000", ":8001", ":8002"}
+	masters := make([]*netw.ClientEnd, len(servers))
+	for i, addr := range servers {
+		masters[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), "tcp", addr)
+	}
+
+	total, n := 1<<15, 8
+	per := total / n
+
+	val :=  randstring(100)
+	var wg sync.WaitGroup
+	for j := 0; j < n; j++ {
+		wg.Add(1)
+		go func(begin int) {
+			ck := MakeUserClient(masters)
+			for {
+				for i := begin; i < begin + per; i++ {
+					k, v := fmt.Sprintf("%d", i), val
+					reply := ck.Put(k, []byte(v))
+					if reply.Err != common.OK {
+						fmt.Println(reply.Err)
+					}
+				}
+			}
+		}(j*per)
+	}
+	wg.Wait()
+
 }

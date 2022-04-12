@@ -58,6 +58,11 @@ type Raft struct {
 	electionTimer  *time.Timer
 	heartbeatTimer *time.Timer
 
+	leaderTransferring bool
+	electionCh	   chan	int
+
+	lease 		lease
+
 	rpcFunc 	netw.RpcFunc
 
 	logger		*logrus.Logger
@@ -87,11 +92,7 @@ func Make(rpcFunc netw.RpcFunc, peers int, me int, persister *DiskPersister, app
 	if logFileEnabled {
 		rf.log = makeWriteAheadRaftLog(0, 0, rf, logFileName, logFileCap)
 		rf.log.restore([]byte(logFileName))
-	} else {
-		rf.log = makeInMemoryRaftLog(0, 0, rf)
-		rf.log.restore(persister.ReadLogState())
 	}
-
 	rf.commitIdx = rf.log.CpIdx()
 	rf.lastApplied = rf.log.CpIdx()
 
@@ -102,6 +103,13 @@ func Make(rpcFunc netw.RpcFunc, peers int, me int, persister *DiskPersister, app
 	rand.Seed(time.Now().UnixNano())
 	rf.electionTimer = time.NewTimer(rf.generateElectionTimeout())
 	rf.heartbeatTimer = time.NewTimer(rf.generateHeartbeatTimeout())
+
+	rf.leaderTransferring = false
+	rf.electionCh = make(chan int, 1)
+
+	rf.lease = lease {
+		term: rf.currTerm,
+	}
 
 	go rf.ticker()
 	go rf.applyer()
@@ -140,10 +148,29 @@ func (rf *Raft) Clear() {
 func (rf *Raft) ticker() {
 	for !rf.killed() {
 		select {
+		case term := <-rf.electionCh:
+			if rf.killed() {
+				return
+			}
+			rf.logger.Infof("electionCh tick: %d", term)
+
+			rf.doElection()
+
+			rf.mu.Lock()
+			rf.electionTimer.Reset(rf.generateElectionTimeout())
+			rf.mu.Unlock()
+
 		case <-rf.electionTimer.C:
 			if rf.killed() {
 				return
 			}
+
+			rf.mu.Lock()
+			if rf.getRole() == RoleLeader && rf.leaderTransferring {
+				rf.leaderTransferring = false
+				rf.logger.Infof("leadership transfer timeout, abort it ")
+			}
+			rf.mu.Unlock()
 
 			rf.doElection()
 
@@ -167,7 +194,7 @@ func (rf *Raft) ticker() {
 }
 
 func (rf *Raft) generateElectionTimeout() time.Duration {
-	return time.Duration(1000 + rand.Intn(500)) * time.Millisecond
+	return time.Duration(2000 + rand.Intn(1000)) * time.Millisecond
 }
 
 func (rf *Raft) generateHeartbeatTimeout() time.Duration {
@@ -243,45 +270,6 @@ func (rf *Raft) readPersist(data []byte) {
 	}
 }
 
-func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) (err error) {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-
-	rf.electionTimer.Reset(rf.generateElectionTimeout())
-
-	if args.Term > rf.currTerm {
-		rf.whenHearBiggerTerm(args.Term)
-	}
-	originVoteFor := rf.voteFor
-
-	reply.VoteGranted = func() bool {
-		if args.Term < rf.currTerm || (args.Term == rf.currTerm && rf.voteFor != -1 && rf.voteFor != args.CandidateId) {
-			return false
-		}
-		if rf.log.length() == 0 {
-			return true
-		}
-		lastLog := rf.log.last()
-		rf.logger.Debugf("Follower %d last log: %v Candidate lastLogTerm: %d lastLogIdx: %d", rf.me, lastLog, args.LastLogTerm, args.LastLogIdx)
-
-		return lastLog.Term < args.LastLogTerm || (lastLog.Term == args.LastLogTerm && lastLog.Index <= args.LastLogIdx)
-	}()
-
-	rf.logger.Infof("Peer %d hear RequestVote from candidate %d, candidate term is %d, its term is %d, voteFor is %d vote granted: %v", rf.me, args.CandidateId, args.Term, rf.currTerm, originVoteFor, reply.VoteGranted)
-
-	if reply.VoteGranted {
-		rf.voteFor = args.CandidateId
-		rf.persist()
-	}
-
-	reply.Term = rf.currTerm
-	return
-}
-
-func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-	return rf.rpcFunc(netw.ApiRequestVote, args, reply, server)
-}
-
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) (err error) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -332,7 +320,10 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 				rf.me, args.PrevLogIdx, len(args.Entries))
 		}
 		for _, e := range args.Entries {
-			rf.log.truncateAppend(e)
+			if !rf.log.truncateAppend(e) {
+				reply.Success = false
+				return
+			}
 			if e.Index > rf.commitIdx && e.Index <= args.LeaderCommit && rf.log.length() > 0 && reply.Success {
 				rf.commitIdx = e.Index
 				rf.log.commitTo(rf.commitIdx)
@@ -341,7 +332,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			}
 		}
 		rf.log.sync()
-		rf.persist()
+		// rf.persist()
 	}
 
 	if args.LeaderCommit > rf.commitIdx && rf.log.length() > 0 && reply.Success {
@@ -411,7 +402,6 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 
 func (rf *Raft) sendInstallSnapshot(server int, args *InstallSnapshotArgs, reply *InstallSnapshotReply) bool {
 	return rf.rpcFunc(netw.ApiInstallSnapshot, args, reply, server)
-
 }
 
 func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int, lastIncludedLSN uint64, snapshot []byte) bool {
@@ -451,9 +441,16 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	if rf.getRole() != RoleLeader {
 		return 0, 0, false
 	}
+	if rf.killed() {
+		return 0, 0, false
+	}
+	rf.mu.Lock()
+	if rf.leaderTransferring {
+		rf.mu.Unlock()
+		return 0, 0, false
+	}
 
 	// append log entry to local logs
-	rf.mu.Lock()
 	var lastLogIdx int
 	if rf.log.length() > 0 {
 		lastLogIdx = rf.log.last().Index
@@ -465,9 +462,12 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		Term:    rf.currTerm,
 		Index:   lastLogIdx + 1,
 	}
-	rf.log.append(entry)
+	if !rf.log.append(entry) {
+		rf.mu.Unlock()
+		return 0, 0, false
+	}
 	rf.logger.Debugf("Leader %d append entry %v to logs", rf.me, entry.Index)
-	rf.persist()
+	// rf.persist()
 	rf.log.sync()
 	rf.mu.Unlock()
 
@@ -477,13 +477,14 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 
 func (rf *Raft) BroadcastHeartbeat(isHeartBeat bool) {
+	start := time.Now().UnixNano()
 	for peer := 0; peer <  rf.peers; peer++ {
 		if peer == rf.me {
 			continue
 		}
 		if isHeartBeat {
 			// need sending at once to maintain leadership
-			go rf.replicateOneRound(peer)
+			go rf.replicateOneRound(peer, start)
 		} else {
 			// just signal replicator goroutine to send entries in batch
 			rf.replicatorCond[peer].Signal()
@@ -505,20 +506,17 @@ func (rf *Raft) replicator(peer int) {
 	rf.replicatorCond[peer].L.Lock()
 	defer rf.replicatorCond[peer].L.Unlock()
 	for !rf.killed() {
-		// if there is no need to replicate entries for this peer, just release CPU and wait other goroutine's signal if service adds new Command
-		// if this peer needs replicating entries, this goroutine will call replicateOneRound(peer) multiple times until this peer catches up, and then wait
 		for !rf.needReplicating(peer) {
 			rf.replicatorCond[peer].Wait()
 			if rf.killed() {
 				return
 			}
 		}
-		// maybe a pipeline mechanism is better to trade-off the memory usage and catch up time
-		rf.replicateOneRound(peer)
+		rf.replicateOneRound(peer, 0)
 	}
 }
 
-func (rf *Raft) replicateOneRound(peer int) {
+func (rf *Raft) replicateOneRound(peer int, start int64) {
 	rf.mu.RLock()
 	if rf.getRole() != RoleLeader {
 		rf.mu.RUnlock()
@@ -563,6 +561,7 @@ func (rf *Raft) replicateOneRound(peer int) {
 			PrevLogTerm:  prevLogTerm,
 			LeaderCommit: rf.commitIdx,
 			Entries:      entries,
+			Start: 		  start,
 		}
 		rf.mu.RUnlock()
 
@@ -616,8 +615,13 @@ func (rf *Raft) handleAppendEntriesResponse(j int, args *AppendEntriesArgs, repl
 	}
 
 	if len(args.Entries) == 0 {
+		if args.Start != 0 && rf.majorityAgreeAt(args.PrevLogIdx) {
+			// update leader lease
+			rf.lease.refresh(rf.currTerm, args.Start +leaseNano)
+		}
 		return
 	}
+
 	N := args.Entries[len(args.Entries) - 1].Index
 
 	// follower agree, advanced follower's nextIdx and matchIdx
@@ -631,7 +635,12 @@ func (rf *Raft) handleAppendEntriesResponse(j int, args *AppendEntriesArgs, repl
 	rf.logger.Debugf("Leader %d nextIdx[%d] update to %d", rf.me, j, rf.nextIdx[j])
 
 	// if the majority agreed, commit entries, break loop
-	if rf.majorityAgreeAt(N) {
+	if rf.majorityAgreeAtEq(N) {
+		// update leader lease
+		if args.Start != 0 {
+			rf.lease.refresh(rf.currTerm, args.Start +leaseNano)
+		}
+
 		if N <= rf.log.CpIdx() {
 			return
 		}
@@ -650,7 +659,7 @@ func (rf *Raft) handleAppendEntriesResponse(j int, args *AppendEntriesArgs, repl
 	return
 }
 
-func (rf *Raft) majorityAgreeAt(idx int) bool {
+func (rf *Raft) majorityAgreeAtEq(idx int) bool {
 	cnt := 1
 	for i := 0; i < rf.peers; i++ {
 		if i == rf.me {
@@ -663,6 +672,19 @@ func (rf *Raft) majorityAgreeAt(idx int) bool {
 	return cnt == (rf.peers / 2 + 1)
 }
 
+func (rf *Raft) majorityAgreeAt(idx int) bool {
+	cnt := 1
+	for i := 0; i < rf.peers; i++ {
+		if i == rf.me {
+			continue
+		}
+		if rf.matchIdx[i] >= idx {
+			cnt++
+		}
+	}
+	return cnt >= (rf.peers / 2 + 1)
+}
+
 func (rf *Raft) applyer() {
 	for !rf.killed() {
 		rf.mu.Lock()
@@ -673,6 +695,10 @@ func (rf *Raft) applyer() {
 			if rf.killed() {
 				break
 			}
+		}
+		if rf.killed() {
+			rf.mu.Unlock()
+			return
 		}
 
 		commitIndex, lastApplied := rf.commitIdx, rf.lastApplied
@@ -855,6 +881,7 @@ func (rf *Raft) Kill() {
 	}
 	rf.applyCond.Broadcast()
 
+	rf.log.close()
 }
 
 func (rf *Raft) killed() bool {
@@ -865,107 +892,6 @@ func (rf *Raft) killed() bool {
 // entry index => posistion (starts from 0)
 func (rf *Raft) posOf(idx int) int {
 	return idx - rf.log.CpIdx() - 1
-}
-
-func (rf *Raft) whenHearBiggerTerm(term int) {
-	rf.logger.Infof("Peer %d hear from peer with bigger term %d > %d, update current term",
-		rf.me, term, rf.currTerm)
-	rf.currTerm = term
-	rf.voteFor = -1
-	rf.persist()
-	if rf.getRole() != RoleFollower {
-		isLeaderBefore := rf.getRole() == RoleLeader
-		rf.setRole(RoleFollower)
-		rf.logger.Infof("Peer %d is not follower while hear bigger term, switch to follower", rf.me)
-		if isLeaderBefore {
-			rf.logger.Infof("Peer %d is old leader switch to follower and start electionLoop", rf.me)
-		}
-	}
-}
-
-// election process
-func (rf *Raft) doElection() {
-	rf.mu.Lock()
-	if rf.getRole() == RoleLeader {
-		rf.mu.Unlock()
-		return
-	}
-
-	// swich to cadidate
-	rf.setRole(RoleCandidate)
-	// incr term
-	rf.currTerm++
-	// vote for self
-	rf.voteFor = rf.me
-	rf.persist()
-
-	electionTerm := rf.currTerm
-	rf.mu.Unlock()
-
-	// send request vote rpc to all other server
-	var passVote int32 = 1
-	var once sync.Once
-	for i := 0; i < rf.peers; i++ {
-		if i == rf.me {
-			continue
-		}
-		go func(j int) {
-			rf.mu.Lock()
-			defer rf.mu.Unlock()
-
-			var lastLogTerm, lastLogIdx int = 0, 0
-			if rf.log.length() > 0 {
-				lastLogTerm = rf.log.last().Term
-				lastLogIdx = rf.log.last().Index
-			}
-			args := RequestVoteArgs {
-				RPCArgBase: &netw.RPCArgBase{},
-				Term:        electionTerm,
-				CandidateId: rf.me,
-				LastLogIdx:  lastLogIdx,
-				LastLogTerm: lastLogTerm,
-			}
-			reply := RequestVoteReply{}
-
-			rf.mu.Unlock()
-			if ok := rf.sendRequestVote(j, &args, &reply); !ok {
-				rf.logger.Debugf("Candidate %d Fail to send RequestVote rpc to peer %d", rf.me, j)
-				rf.mu.Lock()
-				return
-			}
-			rf.mu.Lock()
-
-			if rf.currTerm != args.Term {
-				return
-			}
-
-			if reply.Term > rf.currTerm {
-				rf.whenHearBiggerTerm(reply.Term)
-				return
-			}
-
-			//rf.logger.Debugf("Candidate %d send RequestVote to peer %d reply: %v", rf.me, j, reply)
-			if reply.VoteGranted {
-				if rf.getRole() == RoleFollower {
-					// has already heard from new leader
-					rf.logger.Infof("Candidate %d already heard heartbeat from new leader, stop election", rf.me)
-					return
-				}
-
-				voteCnt := atomic.AddInt32(&passVote, 1)
-				rf.logger.Infof("Candidate %d receive a vote from peer %d", rf.me, j)
-				if int(voteCnt) >= rf.peers/2+1 {
-					once.Do(func() {
-						rf.logger.Infof("Candidate %d %v win the election(%d/%d) become leader", rf.me, rf, voteCnt, rf.peers)
-						rf.setRole(RoleLeader)
-						rf.reInitNextIdx()
-						rf.matchIdx = make([]int, rf.peers)
-						// go rf.Start(EmptyCmd{})
-					})
-				}
-			}
-		}(i)
-	}
 }
 
 func (rf *Raft) reInitNextIdx() {

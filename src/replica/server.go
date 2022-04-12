@@ -58,13 +58,17 @@ func (kv* ShardKV) Raft() *raft.Raft {
 	return kv.rf
 }
 
+func (kv *ShardKV) Me() int {
+	return kv.me
+}
+
 func (kv *ShardKV) SetCurrConfig(config master.ConfigV1)  {
 	buf := new(bytes.Buffer)
 	if err := labgob.NewEncoder(buf).Encode(config); err != nil {
-		panic(err)
+		kv.log.Errorln(err)
 	}
 	if err := kv.store.Put(fmt.Sprintf(KeyCurrConfig, kv.gid), buf.Bytes()); err != nil {
-		panic(err)
+		kv.log.Errorln(err)
 	}
 	kv.currConfig = config
 
@@ -80,10 +84,10 @@ func (kv *ShardKV) GetCurrConfig() master.ConfigV1 {
 func (kv *ShardKV) SetPrevConfig(config master.ConfigV1) {
 	buf := new(bytes.Buffer)
 	if err := labgob.NewEncoder(buf).Encode(config); err != nil {
-		panic(err)
+		kv.log.Errorln(err)
 	}
 	if err := kv.store.Put(fmt.Sprintf(KeyPrevConfig, kv.gid), buf.Bytes()); err != nil {
-		panic(err)
+		kv.log.Errorln(err)
 	}
 	kv.prevConfig = config
 }
@@ -92,7 +96,7 @@ func (kv *ShardKV) SetLastApplied(lastApplied int) {
 	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, uint64(lastApplied))
 	if err := kv.store.Put(fmt.Sprintf(KeyLastApplied, kv.gid), buf); err != nil {
-		panic(err)
+		kv.log.Errorln(err)
 	}
 	kv.lastApplied = lastApplied
 }
@@ -116,9 +120,13 @@ func (kv *ShardKV) GetGroupInfo() *master.GroupInfo {
 	kv.mu.RLock()
 	defer kv.mu.RUnlock()
 
+	// _ = kv.store.Sync()
+
 	_, isLeader := kv.rf.GetState()
 	conf := kv.currConfig
 	sizeOfGroup := int64(0)
+
+	sizeOfGroup = kv.store.FileSize()
 
 	shards := make(map[int]master.ShardInfo)
 	for id, shard := range kv.shardDB {
@@ -126,16 +134,16 @@ func (kv *ShardKV) GetGroupInfo() *master.GroupInfo {
 			Id: 	id,
 			Gid: 	conf.Shards[id],
 			Status: shard.Status,
-			Size: shard.Size(),
+			Size:   shard.Size(),
 		}
-		sizeOfGroup += shards[id].Size
+		// sizeOfGroup += shards[id].Size
 	}
-	prefix := fmt.Sprintf(KeyReplicaPrefix, kv.gid)
-	if size, err := kv.store.Size([]string{prefix}); err != nil {
-		panic(err)
-	} else {
-		sizeOfGroup += size
-	}
+	// prefix := fmt.Sprintf(KeyReplicaPrefix, kv.gid)
+	// if size, err := kv.store.Size([]string{prefix}); err != nil {
+	// 	kv.log.Errorln(err)
+	// } else {
+	// 	sizeOfGroup += size
+	// }
 
 	res := &master.GroupInfo {
 		Id: 		kv.gid,
@@ -212,7 +220,10 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) (e error) {
 		kv.log.Debugf("KVServer %d ReadIndex %d start to wait", kv.me, readIdx)
 		kv.waitAppliedTo(readIdx)
 		kv.log.Debugf("KVServer %d ReadIndex %d success", kv.me, readIdx)
-
+		if kv.Killed() {
+			reply.Err = common.ErrNodeClosed
+			return
+		}
 		kv.mu.RLock()
 		reply.Value, reply.Err = kv.executeGet(args.Key)
 		reply.Peer, reply.GID = kv.me, kv.gid
@@ -375,6 +386,22 @@ func (kv *ShardKV) EraseShard(args *EraseShardArgs, reply *EraseShardReply ) (e 
 	return
 }
 
+func (kv *ShardKV) TransferLeader(args *raft.TransferLeaderArgs, reply *raft.TransferLeaderReply) (e error) {
+	kv.mu.RLock()
+	conf := kv.currConfig
+	kv.mu.RUnlock()
+
+	ngs := conf.Groups[kv.gid]
+	for _, ng := range ngs {
+		if ng.NodeId == args.NodeId {
+			args.Peer = ng.RaftPeer
+			return kv.rf.TransferLeader(args, reply)
+		}
+	}
+	reply.Err = common.ErrFailed
+	return
+}
+
 func (kv *ShardKV) checkShardInCharge(key string) bool {
 	kv.mu.RLock()
 	defer kv.mu.RUnlock()
@@ -454,7 +481,7 @@ func (kv *ShardKV) delWaitChLock(idx int) {
 
 func (kv *ShardKV) waitAppliedTo(target int) {
 	kv.appliedCond.L.Lock()
-	for kv.lastApplied < target {
+	for kv.lastApplied < target && !kv.Killed(){
 		kv.appliedCond.Wait()
 	}
 	kv.appliedCond.L.Unlock()
@@ -469,9 +496,8 @@ func (kv *ShardKV) isDuplicated(key string, cid, seq int64) bool {
 }
 
 func (kv *ShardKV) Kill() {
-	kv.rf.Kill()
 	atomic.StoreInt32(&kv.dead, 1)
-
+	kv.appliedCond.Broadcast()
 	for i := 0; i < kv.numDaemon; i++ {
 		kv.KilledC <- i
 	}
@@ -479,7 +505,8 @@ func (kv *ShardKV) Kill() {
 		name := <-kv.exitedC
 		kv.log.Warnf("KVServer %d daemon function %s exited", kv.me, name)
 	}
-
+	kv.rf.Kill()
+	kv.store.Close()
 	kv.log.Warnf("KVServer %d exited", kv.me)
 
 }
@@ -532,7 +559,7 @@ func StartServer(raftDataDir, logFileName string, logFileCap uint64 ,me int, pee
 	}
 
 	if err := kv.RecoverFromStore(); err != nil {
-		panic(err)
+		kv.log.Errorln(err)
 	}
 
 	go kv.checkpointer()

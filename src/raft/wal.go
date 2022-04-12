@@ -23,8 +23,9 @@ const PageSize = 4096
 
 const (
 	LogFileMagic uint32 = 0x19283745
-	// LogFileCapacityDefault uint64 = 2 << 20
-	LogFileCapacityDefault uint64 = 1 << 20
+	// LogFileCapacityDefault uint64 = 1 << 19
+	LogFileCapacityDefault uint64 = 1 << 23
+	// LogFileCapacityDefault uint64 = 8192 * 4
 )
 
 type LogFileHeader struct {
@@ -236,18 +237,6 @@ func MakeWAL(filename string, needInit bool, capacity uint64, logger *logrus.Log
 	}
 
 	return wal, nil
-}
-
-func (wal *WAL) Remain() uint64 {
-	wal.mu.RLock()
-	defer wal.mu.RUnlock()
-	return wal.remain()
-}
-
-func (wal *WAL) Size() uint64 {
-	wal.mu.RLock()
-	defer wal.mu.RUnlock()
-	return wal.size()
 }
 
 func (wal *WAL) Checkpoint(toLSN uint64, term, idx int) error {
@@ -508,10 +497,6 @@ func (wal *WAL) endLsnOf(lg *LogStruct) uint64 {
 
 func (wal *WAL) pageAlign(lsn uint64) uint64 {
 	return lsn - (lsn % PageSize)
-}
-
-func (wal *WAL) isFirstPage(lsn uint64) bool {
-	return wal.lsn2ofs(lsn) < PageSize
 }
 
 func (wal *WAL) willLoopBack(lsn uint64, step uint64) bool {

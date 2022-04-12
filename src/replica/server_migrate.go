@@ -92,47 +92,6 @@ func (kv *ShardKV) UpdateConfig(config master.ConfigV1)  {
 	}
 }
 
-func (kv *ShardKV) confUpdater() {
-	tick := time.Tick(ReConfTick)
-	for {
-		select {
-		case <-kv.KilledC:
-			kv.log.Debugf("KVServer %d has been killed, stop confUpdater loop", kv.me)
-			kv.exitedC <- runFuncName()
-			return
-		case <-tick:
-			if _, isLeader := kv.rf.GetState(); !isLeader {
-				continue
-			}
-			kv.mu.RLock()
-			if ok := kv.canPullConfig(); !ok {
-				kv.mu.RUnlock()
-				continue
-			}
-			currConf := kv.currConfig
-			kv.mu.RUnlock()
-
-			var latestConf master.ConfigV1
-			f := func() {
-				latestConf = kv.mck.Query(currConf.Num + 1)
-			}
-			if !willTimeout(f, 1*time.Second) {
-				if latestConf.Num == currConf.Num + 1 {
-					kv.log.Infof("KVServer %d pull latest currConfig, Num=%d", kv.me, latestConf.Num)
-					cmd := ConfCmd {
-						CmdBase: &CmdBase{
-							Type: CmdConf,
-						},
-						Config: latestConf,
-					}
-					kv.raftStartCmdNoWait(cmd)
-				}
-			}
-		}
-	}
-}
-
-
 func (kv *ShardKV) shardPuller() {
 	tick := time.Tick(PullerTick)
 	for {
@@ -205,7 +164,7 @@ func (kv *ShardKV) shardPuller() {
 									kv.me)
 							}
 							break
-						} else {
+						} else if reply.Err != common.ErrWrongLeader {
 							kv.log.Warnf("KVServer %d ShardPuller: send PullShard to group %d failed, err: %v, our %d != %d",
 								kv.me, groupId, reply.Err, confNum, reply.ConfNum)
 						}
@@ -295,7 +254,7 @@ func (kv *ShardKV) shardEraser() {
 									kv.me)
 							}
 							break
-						} else {
+						} else if reply.Err != common.ErrWrongLeader {
 							kv.log.Warnf("KVServer %d ShardEraser: send EraseShard to group %d failed, err: %v, our %d != %d",
 								kv.me, groupId, reply.Err, confNum, reply.ConfNum)
 						}

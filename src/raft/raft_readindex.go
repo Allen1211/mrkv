@@ -1,8 +1,8 @@
 package raft
 
 import (
-	"fmt"
 	"sync/atomic"
+	"time"
 
 	"mrkv/src/netw"
 )
@@ -50,7 +50,6 @@ func (rf *Raft) ReadIndexFromFollower(args *ReadIndexFromFollowerArgs, reply *Re
 	if rf.getRole() == RoleLeader {
 		reply.Success, reply.ReadIdx = rf.readIndexLeader()
 		reply.IsLeader = true
-		fmt.Printf("%v idx=%d\n", reply.Success, reply.ReadIdx)
 	} else {
 		reply.Success, reply.IsLeader = false, false
 	}
@@ -72,6 +71,11 @@ func (rf *Raft) readIndexLeader() (bool, int) {
 		return false, 0
 	}
 	readIdx := rf.commitIdx
+	if rf.currTerm == rf.lease.term && time.Now().UnixNano() < rf.lease.to {
+		rf.logger.Debugf("leader lease read : %v", rf.lease)
+		rf.mu.RUnlock()
+		return true, readIdx
+	}
 	rf.mu.RUnlock()
 
 	ch := make(chan bool, 1)

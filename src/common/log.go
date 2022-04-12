@@ -7,7 +7,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func InitLogger(level string, appName string) (*log.Logger, error) {
+func InitLogger(level, appName string) (*log.Logger, error) {
 	logger := log.New()
 	switch strings.ToLower(level) {
 	case "trace": logger.SetLevel(log.TraceLevel)
@@ -21,6 +21,14 @@ func InitLogger(level string, appName string) (*log.Logger, error) {
 		return nil, fmt.Errorf("unsupported log level %s", level)
 	}
 	logger.SetFormatter(&MyLogFormatter{AppName: appName})
+	// if path != "" {
+	// 	logFile, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0666)
+	// 	if err != nil {
+	// 		return nil, fmt.Errorf("can not open log file %s: %v", path, err)
+	// 	}
+	// 	writer := io.MultiWriter(os.Stdout, logFile)
+	// 	logger.SetOutput(writer)
+	// }
 	return logger, nil
 }
 

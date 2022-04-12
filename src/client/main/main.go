@@ -11,7 +11,7 @@ import (
 func main() {
 	conf := makeConfig()
 
-	cc := client.MakeConsoleClient(conf)
+	cc := client.MakeConsoleClient(conf, nil, nil)
 	cc.Start()
 
 }

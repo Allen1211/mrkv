@@ -3,6 +3,7 @@ package etc
 import (
 	"encoding/json"
 	"io/ioutil"
+	"runtime"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -13,7 +14,6 @@ type MasterConf struct {
 }
 
 type RaftConf struct {
-	Me			int 	 `json:"me"`
 	DataDir		string	 `json:"data_dir"`
 	WalDir		string	 `json:"wal_dir"`
 	WalCap		uint64	 `json:"wal_cap"`
@@ -23,8 +23,40 @@ type RaftConf struct {
 
 type ServConf struct {
 	Servers		[]string `json:"servers"`
-	Me			int 	 `json:"me"`
+	Me			int		 `json:"me"`
 	LogLevel 	string   `json:"log_level"`
+	LogDir      string   `json:"log_dir"`
+}
+
+func MakeDefaultConfig() MasterConf {
+	var defaultConf MasterConf
+	if runtime.GOOS == "linux" {
+		defaultConf = MasterConf {
+			Raft: RaftConf{
+				DataDir:  "/data/mrkvmaster/data",
+				WalDir:   "/data/mrkvmaster/logs",
+				WalCap:   1048576,
+				LogLevel: "info",
+			},
+			Serv: ServConf{
+				LogLevel: "info",
+				LogDir: "/var/log/mrkvmaster",
+			},
+		}
+	} else {
+		defaultConf = MasterConf {
+			Raft: RaftConf{
+				DataDir:  "E:/MyWorkPlace/Project/MultiRaftKV/data/master",
+				WalDir:   "E:/MyWorkPlace/Project/MultiRaftKV/logs/master",
+				WalCap:   1048576,
+				LogLevel: "info",
+			},
+			Serv: ServConf{
+				LogLevel: "info",
+			},
+		}
+	}
+	return defaultConf
 }
 
 func ParseMasterConf(confPath string) MasterConf {
@@ -33,7 +65,7 @@ func ParseMasterConf(confPath string) MasterConf {
 	if err != nil {
 		log.Fatalf("failed to open config file: %v", err)
 	}
-	conf := MasterConf{}
+	conf := MakeDefaultConfig()
 	if err := json.Unmarshal(confBytes, &conf); err != nil {
 		log.Fatalf("failed to parse config file: %v", err)
 	}

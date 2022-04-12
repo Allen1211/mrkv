@@ -7,6 +7,7 @@ import (
 
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/iterator"
+	"github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/syndtr/goleveldb/leveldb/util"
 
 	"mrkv/src/common/labgob"
@@ -17,12 +18,14 @@ type LevelStore struct {
 	mu 		*sync.RWMutex
 	db		*leveldb.DB
 	path	string
+	keyForSync string
 }
 
-func MakeLevelStore(path string) (*LevelStore, error) {
+func MakeLevelStore(path string, keyForSync string) (*LevelStore, error) {
 	lvs := new(LevelStore)
 	lvs.mu = &sync.RWMutex{}
 	lvs.path = path
+	lvs.keyForSync = keyForSync
 
 	var err error
 
@@ -30,7 +33,11 @@ func MakeLevelStore(path string) (*LevelStore, error) {
 		return nil, err
 	}
 
-	if lvs.db, err = leveldb.OpenFile(path, nil); err != nil {
+	options := opt.Options {
+		WriteBuffer: 4096 * 1024,
+		NoSync: true,
+	}
+	if lvs.db, err = leveldb.OpenFile(path, &options); err != nil {
 		return nil, err
 	}
 
@@ -145,12 +152,17 @@ func (lvs *LevelStore) Clear(prefix string) error {
 	defer iter.Release()
 
 	for iter.First(); iter.Valid(); iter.Next() {
-		if err := lvs.db.Delete(iter.Key(), nil); err != nil {
+		if err := lvs.db.Delete(iter.Key(), &opt.WriteOptions{Sync: false}); err != nil {
 			return err
 		}
 	}
+	lvs.Sync()
 
 	return nil
+}
+
+func (lvs* LevelStore) Sync() error {
+	return lvs.db.Put([]byte(lvs.keyForSync),[]byte(""), &opt.WriteOptions{Sync: true})
 }
 
 func (lvs *LevelStore) Close() {
@@ -159,4 +171,8 @@ func (lvs *LevelStore) Close() {
 
 func (lvs *LevelStore) DeleteFile()  {
 	utils.DeleteDir(lvs.path)
+}
+
+func (lvs *LevelStore) FileSize() int64  {
+	return utils.SizeOfDir(lvs.path)
 }

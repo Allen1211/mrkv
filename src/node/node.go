@@ -4,9 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"net"
-	"net/http"
-	"net/rpc"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -14,6 +13,7 @@ import (
 
 	"mrkv/src/common"
 	"mrkv/src/common/labgob"
+	"mrkv/src/common/utils"
 	"mrkv/src/master"
 	"mrkv/src/netw"
 	"mrkv/src/node/etc"
@@ -23,7 +23,8 @@ import (
 type Node struct {
 	logger		*logrus.Logger
 	mu 			sync.RWMutex
-
+	listener    net.Listener
+	conns		[]*net.Conn
 	userConf	etc.NodeConf
 
 	Id 			int
@@ -41,6 +42,7 @@ type Node struct {
 	latestConf master.ConfigV1
 
 	KilledC		chan int
+	killed      int32
 }
 
 func (n *Node) Addr() string {
@@ -65,7 +67,9 @@ func MakeNode(userConf etc.NodeConf, masters []*netw.ClientEnd, logLevel string)
 	}
 	node.logger, _ = common.InitLogger(logLevel, fmt.Sprintf("Node%d", node.Id))
 
-	store, err := replica.MakeLevelStore(fmt.Sprintf("%s/node-%d/meta", userConf.DBPath, node.Id))
+	store, err := replica.MakeLevelStore(fmt.Sprintf("%s/node-%d/meta", userConf.DBPath, node.Id),
+		replica.KeyNodeForSync)
+
 	if err != nil {
 		node.logger.Fatalf("cannot open leveldb handler: %v", err)
 	}
@@ -73,29 +77,28 @@ func MakeNode(userConf etc.NodeConf, masters []*netw.ClientEnd, logLevel string)
 
 	node.recover()
 
-	go node.daemon("heartbeater", node.heartbeat, 300*time.Millisecond)
+	go node.daemon("heartbeater", node.heartbeat, 1*time.Second)
 
 	return node
 }
 
 func (n *Node) Kill() {
 	for gid, group := range n.groups {
-		group.replica.Kill()
+		if group.replica != nil {
+			group.replica.Kill()
+		}
 		n.logger.Warnf("replica %d was killed", gid)
 	}
 	n.KilledC <- 1
+	atomic.StoreInt32(&n.killed, 1)
+	if n.listener != nil {
+		n.listener.Close()
+	}
+	n.store.Close()
 }
 
-func (n *Node) StartRPCServer() error {
-	if err := rpc.RegisterName(fmt.Sprintf("Node-%d", n.Id) , n); err != nil {
-		return err
-	}
-	l, err := net.Listen("tcp", n.Addr())
-	if err != nil {
-		return err
-	}
-	go http.Serve(l, nil)
-	return nil
+func (n *Node) Killed() bool {
+	return atomic.LoadInt32(&n.killed) == 1
 }
 
 func (n *Node) daemon(name string, f func(), tick time.Duration) {
@@ -104,6 +107,7 @@ func (n *Node) daemon(name string, f func(), tick time.Duration) {
 		select {
 		case <-n.KilledC:
 			n.logger.Warnf("daemon goroutine %s was killed", name)
+			return
 		case <-ticker:
 			f()
 		}
@@ -207,7 +211,7 @@ func (n *Node) heartbeat()  {
 		}
 	}
 	if err := n.saveMetaData(); err != nil {
-		n.logger.Fatalf("faile to save meta data: %v", err)
+		n.logger.Errorf("faile to save meta data: %v", err)
 	}
 
 	n.logger.Debugf("heartbeat finished")
@@ -244,11 +248,11 @@ func (n *Node) doStartReplica(gid, me, raftPeers int) *replica.ShardKV {
 
 	dbPath := fmt.Sprintf("%s/node-%d/replica-%d", n.userConf.DBPath, n.Id, gid)
 	var store replica.Store
-	if store, err = replica.MakeLevelStore(dbPath); err != nil {
-		n.logger.Fatalf("failed to make levelStore at %s : %v", dbPath, err)
+	if store, err = replica.MakeLevelStore(dbPath, fmt.Sprintf(replica.KeyForSync, gid)); err != nil {
+		n.logger.Errorf("failed to make levelStore at %s : %v", dbPath, err)
 		return nil
 	}
-
+	_ = utils.CheckAndMkdir(fmt.Sprintf(n.userConf.Raft.WalDir + "/node%d", n.Id))
 	logFileName := fmt.Sprintf(n.userConf.Raft.WalDir + "/node%d/logfile%d-%d", n.Id, gid, me)
 	logFileCap := n.userConf.Raft.WalCap
 	raftDataDir := dbPath

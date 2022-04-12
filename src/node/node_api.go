@@ -3,12 +3,39 @@ package node
 import (
 	"errors"
 	"fmt"
+	"net"
+	"net/rpc"
+	"sync/atomic"
 
 	"mrkv/src/common"
 	"mrkv/src/netw"
 	"mrkv/src/raft"
 	"mrkv/src/replica"
 )
+
+
+func (n *Node) StartRPCServer() error {
+	server := rpc.NewServer()
+	if err := server.RegisterName(fmt.Sprintf("Node-%d", n.Id) , n); err != nil {
+		return err
+	}
+	l, err := net.Listen("tcp", n.Addr())
+	if err != nil {
+		return err
+	}
+	n.listener = l
+
+	go func() {
+		for atomic.LoadInt32(&n.killed) == 0 {
+			conn, err2 := l.Accept()
+			if err2 != nil {
+				continue
+			}
+			go server.ServeConn(conn)
+		}
+	}()
+	return nil
+}
 
 func (n *Node) rpcFuncImpl(apiName string, args interface{}, reply interface{}, ids ...int) bool {
 	var nodeId int
@@ -19,7 +46,10 @@ func (n *Node) rpcFuncImpl(apiName string, args interface{}, reply interface{}, 
 	case netw.ApiAppendEntries: 		fallthrough
 	case netw.ApiRequestVote:			fallthrough
 	case netw.ApiInstallSnapshot:		fallthrough
-	case netw.ApiReadIndexFromFollower:
+	case netw.ApiReadIndexFromFollower: fallthrough
+	case netw.ApiTransferLeader:		fallthrough
+	case netw.ApiTimeoutNow:
+
 		nodeId = n.route(ids[1], ids[0])
 	}
 
@@ -45,6 +75,10 @@ func (n *Node) route(gid, peer int) int {
 /* API of Replica */
 
 func (n *Node) Get(args *replica.GetArgs, reply *replica.GetReply) (e error) {
+	if n.Killed() {
+		return errors.New(string(common.ErrNodeClosed))
+	}
+
 	if group, ok := n.groups[args.Gid]; !ok || group.replica == nil {
 		n.logger.Errorf("RPC Call Replica.Get cannot found group %d in this node", args.Gid)
 		reply.Err = common.ErrWrongGroup
@@ -56,6 +90,9 @@ func (n *Node) Get(args *replica.GetArgs, reply *replica.GetReply) (e error) {
 }
 
 func (n *Node) PutAppend(args *replica.PutAppendArgs, reply *replica.PutAppendReply) (e error) {
+	if n.Killed() {
+		return errors.New(string(common.ErrNodeClosed))
+	}
 	if group, ok := n.groups[args.Gid]; !ok || group.replica == nil {
 		n.logger.Errorf("RPC Call Replica.PutAppend cannot found group %d in this node", args.Gid)
 		reply.Err = common.ErrWrongGroup
@@ -67,6 +104,9 @@ func (n *Node) PutAppend(args *replica.PutAppendArgs, reply *replica.PutAppendRe
 }
 
 func (n *Node) Delete(args *replica.DeleteArgs, reply *replica.DeleteReply) (e error) {
+	if n.Killed() {
+		return errors.New(string(common.ErrNodeClosed))
+	}
 	if group, ok := n.groups[args.Gid]; !ok || group.replica == nil {
 		n.logger.Errorf("RPC Call Replica.PutAppend cannot found group %d in this node", args.Gid)
 		reply.Err = common.ErrWrongGroup
@@ -79,6 +119,9 @@ func (n *Node) Delete(args *replica.DeleteArgs, reply *replica.DeleteReply) (e e
 
 
 func (n *Node) PullShard(args *replica.PullShardArgs, reply *replica.PullShardReply) (e error) {
+	if n.Killed() {
+		return errors.New(string(common.ErrNodeClosed))
+	}
 	if group, ok := n.groups[args.Gid]; !ok || group.replica == nil {
 		n.logger.Errorf("RPC Call Replica.PullShard cannot found group %d in this node", args.Gid)
 		reply.Err = common.ErrWrongGroup
@@ -89,6 +132,9 @@ func (n *Node) PullShard(args *replica.PullShardArgs, reply *replica.PullShardRe
 }
 
 func (n *Node) EraseShard(args *replica.EraseShardArgs, reply *replica.EraseShardReply ) (e error) {
+	if n.Killed() {
+		return errors.New(string(common.ErrNodeClosed))
+	}
 	if group, ok := n.groups[args.Gid]; !ok || group.replica == nil {
 		n.logger.Errorf("RPC Call Replica.EraseShard cannot found group %d in this node", args.Gid)
 		reply.Err = common.ErrWrongGroup
@@ -98,9 +144,26 @@ func (n *Node) EraseShard(args *replica.EraseShardArgs, reply *replica.EraseShar
 	}
 }
 
+func (n *Node) TransferLeader(args *raft.TransferLeaderArgs, reply *raft.TransferLeaderReply) (e error)  {
+	if n.Killed() {
+		return errors.New(string(common.ErrNodeClosed))
+	}
+	if group, ok := n.groups[args.Gid]; !ok || group.replica == nil {
+		n.logger.Errorf("RPC Call Replica.EraseShard cannot found group %d in this node", args.Gid)
+		reply.Err = common.ErrWrongGroup
+		return nil
+	} else {
+		return group.replica.TransferLeader(args, reply)
+	}
+}
+
+
 /* API of Raft */
 
 func (n *Node) AppendEntries(args *raft.AppendEntriesArgs, reply *raft.AppendEntriesReply) (err error) {
+	if n.Killed() {
+		return errors.New(string(common.ErrNodeClosed))
+	}
 	if group, ok := n.groups[args.Gid]; !ok || group.replica == nil {
 		n.logger.Errorf("RPC Call Raft.AppendEntries cannot found group %d in this node", args.Gid)
 		return errors.New(string(common.ErrWrongGroup))
@@ -110,6 +173,9 @@ func (n *Node) AppendEntries(args *raft.AppendEntriesArgs, reply *raft.AppendEnt
 }
 
 func (n *Node) RequestVote(args *raft.RequestVoteArgs, reply *raft.RequestVoteReply) (err error) {
+	if n.Killed() {
+		return errors.New(string(common.ErrNodeClosed))
+	}
 	if group, ok := n.groups[args.Gid]; !ok || group.replica == nil {
 		n.logger.Errorf("RPC Call Raft.RequestVote cannot found group %d in this node", args.Gid)
 		return errors.New(string(common.ErrWrongGroup))
@@ -119,6 +185,9 @@ func (n *Node) RequestVote(args *raft.RequestVoteArgs, reply *raft.RequestVoteRe
 }
 
 func (n *Node) InstallSnapshot(args *raft.InstallSnapshotArgs, reply *raft.InstallSnapshotReply)(err error) {
+	if n.Killed() {
+		return errors.New(string(common.ErrNodeClosed))
+	}
 	if group, ok := n.groups[args.Gid]; !ok || group.replica == nil {
 		n.logger.Errorf("RPC Call Raft.InstallSnapshot cannot found group %d in this node", args.Gid)
 		return errors.New(string(common.ErrWrongGroup))
@@ -128,14 +197,27 @@ func (n *Node) InstallSnapshot(args *raft.InstallSnapshotArgs, reply *raft.Insta
 }
 
 func (n *Node) ReadIndexFromFollower(args *raft.ReadIndexFromFollowerArgs, reply *raft.ReadIndexFromFollowerReply) (err error) {
+	if n.Killed() {
+		return errors.New(string(common.ErrNodeClosed))
+	}
 	if group, ok := n.groups[args.Gid]; !ok || group.replica == nil {
 		n.logger.Errorf("RPC Call Raft.ReadIndexFromFollower cannot found group %d in this node", args.Gid)
 		return errors.New(string(common.ErrWrongGroup))
 	} else {
 		err := group.replica.Raft().ReadIndexFromFollower(args, reply)
-		fmt.Println(err)
-		fmt.Println(reply)
 		return err
+	}
+}
+
+func (n *Node) TimeoutNow(args *raft.TimeoutNowArgs, reply *raft.TimeoutNowReply)(err error) {
+	if n.Killed() {
+		return errors.New(string(common.ErrNodeClosed))
+	}
+	if group, ok := n.groups[args.Gid]; !ok || group.replica == nil {
+		n.logger.Errorf("RPC Call Raft.Timeoutnow cannot found group %d in this node", args.Gid)
+		return errors.New(string(common.ErrWrongGroup))
+	} else {
+		return group.replica.Raft().TimeoutNow(args, reply)
 	}
 }
 
@@ -145,6 +227,9 @@ func (n *Node) createNodeEnd(nodeId int)  {
 }
 
 func (n *Node) getOrCreateNodeEnd(nodeId int) *netw.ClientEnd {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
 	node, ok := n.nodeInfos[nodeId]
 	if !ok {
 		return nil

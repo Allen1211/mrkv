@@ -4,7 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
-	"net/http/pprof"
+	// "net/http/pprof"
+	_ "net/http/pprof"
 
 	log "github.com/sirupsen/logrus"
 
@@ -17,14 +18,18 @@ import (
 )
 
 func init() {
-	pprofHandler := http.NewServeMux()
-	pprofHandler.Handle("/debug/pprof/", http.HandlerFunc(pprof.Index))
-	server := &http.Server{
-		Addr:    ":8989",
-		Handler: pprofHandler,
-	}
-	go server.ListenAndServe()
+	// pprofHandler := http.NewServeMux()
+	// pprofHandler.Handle("/debug/pprof/", http.HandlerFunc(pprof.Index))
+	// server := &http.Server{
+	// 	Addr:    ":8989",
+	// 	Handler: pprofHandler,
+	// }
+	// go server.ListenAndServe()
 
+	go func() {
+	 err := http.ListenAndServe("0.0.0.0:9091", nil)
+	 log.Println(err)
+	}()
 }
 
 
@@ -32,7 +37,7 @@ func main() {
 	registerStructure()
 
 	conf := makeConfig()
-	server := startServer(conf)
+	server := StartServer(conf)
 
 	<-server.KilledC
 }
@@ -64,7 +69,7 @@ func makeConfig() etc.NodeConf {
 }
 
 
-func startServer(conf etc.NodeConf) *node.Node {
+func StartServer(conf etc.NodeConf) *node.Node {
 
 	masters := make([]*netw.ClientEnd, len(conf.Masters))
 	for i, addr := range conf.Masters {

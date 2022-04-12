@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"mrkv/src/common"
 	"mrkv/src/netw"
 )
 
@@ -45,6 +46,7 @@ type AppendEntriesArgs struct {
 	PrevLogTerm  int
 	Entries      []LogEntry
 	LeaderCommit int
+	Start		 int64
 }
 
 type AppendEntriesReply struct {
@@ -53,6 +55,7 @@ type AppendEntriesReply struct {
 	XTerm   int
 	XIndex  int
 	XLen    int
+	Ts		int64
 }
 
 
@@ -81,4 +84,26 @@ type ReadIndexFromFollowerReply struct {
 	IsLeader 	bool
 	Success		bool
 	ReadIdx		int
+}
+
+type TransferLeaderArgs struct {
+	*netw.RPCArgBase
+
+	Gid			int
+	NodeId		int
+	Peer		int
+}
+
+type TransferLeaderReply struct {
+	Err			common.Err
+}
+
+type TimeoutNowArgs struct {
+	*netw.RPCArgBase
+	Term 		int
+}
+
+type TimeoutNowReply struct {
+	Term		int
+	Success		bool
 }

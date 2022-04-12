@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/liushuochen/gotable"
+	"github.com/liushuochen/gotable/cell"
+	table2 "github.com/liushuochen/gotable/table"
 
 	"mrkv/src/client/etc"
 	"mrkv/src/common"
@@ -27,6 +29,7 @@ const (
 	OpJoin			= "join"
 	OpLeave			= "leave"
 	OpShow			= "show"
+	OpTransfer	    = "trans_leader"
 
 	OpHelp			= "help"
 	OpQuit			= "quit"
@@ -36,20 +39,21 @@ type OpDesc struct {
 	argc	int
 	retc	int
 	usage	string
-	// desc	string
+	desc	string
 }
 
 var opMap = map[string]OpDesc{
-	NoOp: 		{0, 0, ""},
-	OpGet: 		{1, 1, "get [key]"},
-	OpPut: 		{2, 0, "put [key] [val]"},
-	OpAppend: 	{2, 0, "append [key] [val]"},
-	OpDelete: 	{1, 0, "del [key] [val]"},
-	OpJoin: 	{2, 0, "join [gid] [node0, node1...]"},
-	OpLeave: 	{1, 0, "leave [gid]"},
-	OpShow: 	{1, 0, "show [node|group] id0 id1....idn"},
-	OpQuit: 	{0, 0, "quit"},
-	OpHelp: 	{0, 0, "help"},
+	NoOp: 		{0, 0, "", ""},
+	OpGet: 		{1, 1, "get [key]", "查找键值对"},
+	OpPut: 		{2, 0, "put [key] [val]", "插入键值对"},
+	OpAppend: 	{2, 0, "append [key] [val]", "对该键进行追加值"},
+	OpDelete: 	{1, 0, "del [key] [val]", "删除键值对"},
+	OpJoin: 	{2, 0, "join [gid] [node0, node1...]", "加入raft组"},
+	OpLeave: 	{1, 0, "leave [gid]", "移除raft组"},
+	OpShow: 	{1, 0, "show [master|node|group] id0 id1....idn", "展示集群信息 (master信息, 节点信息, raft组信息, 分片信息)"},
+	OpTransfer: {2, 0, "trans_leader [gid] [node]", "转移raft组的Leader到某节点"},
+	OpQuit: 	{0, 0, "quit", "结束"},
+	OpHelp: 	{0, 0, "help", "获取帮助"},
 }
 
 
@@ -61,19 +65,27 @@ type ConsoleClient struct {
 	lineCh	chan string
 }
 
-func MakeConsoleClient(conf etc.ClientConf) *ConsoleClient {
-
+func MakeConsoleClient(conf etc.ClientConf, in *bufio.Scanner, out *bufio.Writer) *ConsoleClient {
 	api := MakeMrKVClient(conf.Masters)
+
+	if in == nil {
+		in = bufio.NewScanner(os.Stdin)
+	}
+	if out == nil {
+		out = bufio.NewWriter(os.Stdout)
+	}
 
 	return &ConsoleClient{
 		api: api,
-		stdin: bufio.NewScanner(os.Stdin),
-		stdout: bufio.NewWriter(os.Stdout),
+		stdin: in,
+		stdout: out,
 		lineCh: make(chan string, 100),
 	}
 }
 
 func (cc *ConsoleClient) Start()  {
+	printUserGuide(cc.stdout)
+
 	go cc.inputG()
 	cc.outputG()
 }
@@ -261,9 +273,28 @@ func (cc *ConsoleClient) process(op Operation, args []string)  {
 			cc.printShowShardRes(res)
 			cc.output()
 
+		} else if args[0] == "master" {
+			masters := cc.api.ShowMaster()
+			cc.printShowMasterRes(masters)
+			cc.output()
+
 		} else {
 			cc.output("unsupported show information of \"%s\"", args[0])
 		}
+
+	case OpTransfer:
+		gid, err := strconv.ParseInt(args[0], 10, 64)
+		if err != nil {
+			cc.output(fmt.Sprintf("argument [gid] parse error: %v", err))
+			return
+		}
+		target, err := strconv.ParseInt(args[1], 10, 64)
+		if err != nil {
+			cc.output(fmt.Sprintf("argument [gid] parse error: %v", err))
+			return
+		}
+		e := cc.api.TransferLeader(int(gid), int(target))
+		cc.output(string(e))
 	}
 }
 
@@ -308,19 +339,32 @@ func (cc *ConsoleClient) fromStr(from replica.FromReply) string {
 }
 
 func printUserGuide(stdout *bufio.Writer) {
-	_, _ = stdout.WriteString("----------RAFTKV USER GUIDE----------\n")
-	_, _ = stdout.WriteString("* insert [key] [val]	   (插入键值对)\n")
-	_, _ = stdout.WriteString("* update [key] [val]	   (更新键值对)\n")
-	_, _ = stdout.WriteString("* delete [key]		   (删除键值对)\n")
-	_, _ = stdout.WriteString("* get [key]              (查找键值对)\n")
-	_, _ = stdout.WriteString("* snapshot			   (生成快照)\n")
-	_, _ = stdout.WriteString("* stat				   (查看集群信息)\n")
-	_, _ = stdout.WriteString("* usedb [db]			   (选择数据库)\n")
-	_, _ = stdout.WriteString("* newdb [db] [ds]		   (创建数据库, ds=[shardmap|skiplist])\n")
-	_, _ = stdout.WriteString("* deldb [db]			   (删除数据库)\n")
-	_, _ = stdout.WriteString("* lsdb				   (列出所有数据库)\n")
-	_, _ = stdout.WriteString("* help				   (查看帮助)\n")
-	_, _ = stdout.WriteString("* quit				   (退出)\n")
+	cols := []string{"cmd", "usage", "describe"}
+
+	table, err := gotable.Create(cols...)
+	if err != nil {
+		panic(err)
+	}
+	for _, col := range cols {
+		table.Align(col, cell.AlignLeft)
+	}
+	table.CloseBorder()
+
+	writeGuide := func(op Operation, table *table2.Table) {
+		opDesc := opMap[string(op)]
+		if err := table.AddRow([]string{string(op), opDesc.usage, opDesc.desc}); err != nil {
+			panic(err)
+		}
+	}
+	_, _ = stdout.WriteString("----------MultiRaft KV USER GUIDE----------\n")
+
+	cmds := []Operation{OpHelp, OpQuit, OpGet, OpPut, OpAppend, OpDelete, OpJoin, OpLeave, OpShow, OpTransfer}
+	for _, cmd := range cmds {
+		writeGuide(cmd, table)
+	}
+	_, _ = stdout.WriteString(table.String())
+	// _, _ = stdout.WriteString("\n")
+
 	_ = stdout.Flush()
 }
 
@@ -339,8 +383,20 @@ func (cc *ConsoleClient) printShowNodeRes(nodes []master.ShowNodeRes)  {
 		if !node.Found {
 			continue
 		}
+		sort.Ints(node.Groups)
+		var builder strings.Builder
+		for i, gid := range node.Groups {
+			if i > 0 {
+				builder.WriteString(" ")
+			}
+			if node.IsLeader[gid] {
+				builder.WriteString(fmt.Sprintf("%d(L)", gid))
+			} else {
+				builder.WriteString(fmt.Sprintf("%d(F)", gid))
+			}
+		}
 
-		row := []string{strconv.Itoa(node.Id), node.Addr, fmt.Sprintf("%v", node.Groups), node.Status}
+		row := []string{strconv.Itoa(node.Id), node.Addr, builder.String(), node.Status}
 
 		if err := table.AddRow(row); err != nil {
 			panic(err)
@@ -406,6 +462,28 @@ func (cc *ConsoleClient) printShowShardRes(shards []master.ShowShardRes)  {
 
 		row := []string{strconv.Itoa(s.Id), strconv.Itoa(s.Gid) , s.Status.String(), strconv.FormatInt(s.Size, 10),
 			strconv.FormatUint(s.Capacity, 10), s.RangeStart, s.RangeEnd}
+
+		if err := table.AddRow(row); err != nil {
+			panic(err)
+		}
+	}
+	_, _ = stdout.WriteString(table.String())
+}
+
+func (cc *ConsoleClient) printShowMasterRes(masters []master.ShowMasterReply)  {
+	stdout := cc.stdout
+
+	table, err := gotable.Create("Id", "Addr", "IsLeader", "ConfNum", "Size", "Status")
+	if err != nil {
+		panic(err)
+	}
+	for _, m := range masters {
+		// if !s.Found {
+		// 	continue
+		// }
+
+		row := []string{strconv.Itoa(m.Id), m.Addr , strconv.FormatBool(m.IsLeader), strconv.Itoa(m.LatestConfNum),
+			strconv.FormatInt(m.Size, 10), m.Status}
 
 		if err := table.AddRow(row); err != nil {
 			panic(err)

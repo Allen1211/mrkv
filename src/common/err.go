@@ -11,5 +11,5 @@ const (
 	ErrDuplicate   Err = "ErrDuplicate"
 	ErrDiffConf    Err = "ErrDiffConf"
 	ErrNodeNotRegister Err = "node not register"
-
+	ErrNodeClosed  Err = "ErrNodeClosed"
 )
