@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 
 	"mrkv/src/common"
+	"mrkv/src/common/utils"
 	"mrkv/src/netw"
 )
 
@@ -270,7 +271,7 @@ func (rf *Raft) doElection() {
 						rf.reInitNextIdx()
 						rf.matchIdx = make([]int, rf.peers)
 
-						go rf.Start(EmptyCmd{})
+						go rf.Start(utils.EncodeCmdWrap(common.CmdTypeEmpty, []byte{}))
 					})
 				}
 			}

@@ -1,3 +1,5 @@
 .idea
-.data
-.etc
+data/
+etc/
+bin/
+logs/

@@ -1,5 +1,6 @@
 package master
 
+//go:generate msgp
 
 type GroupStatus int
 

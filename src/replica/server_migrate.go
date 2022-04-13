@@ -8,6 +8,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"mrkv/src/common"
+	"mrkv/src/common/utils"
 	"mrkv/src/master"
 	"mrkv/src/netw"
 )
@@ -83,12 +84,10 @@ func (kv *ShardKV) UpdateConfig(config master.ConfigV1)  {
 	if config.Num == currConf.Num + 1 {
 		kv.log.Infof("KVServer %d pull latest currConfig, Num=%d", kv.me, config.Num)
 		cmd := ConfCmd {
-			CmdBase: &CmdBase{
-				Type: CmdConf,
-			},
+			CmdBase: CmdBase{},
 			Config: config,
 		}
-		kv.raftStartCmdNoWait(cmd)
+		kv.raftStartCmdNoWait(common.CmdTypeConf, utils.MsgpEncode(&cmd))
 	}
 }
 
@@ -152,13 +151,12 @@ func (kv *ShardKV) shardPuller() {
 					for _, node := range nodesOfGroup {
 						if ok := kv.rpcFunc(netw.ApiPullShard, &args, &reply, node.NodeId, groupId); ok && reply.Err == common.OK {
 							kv.log.Infof("KVServer %d ShardPuller: send PullShard to group %d success, raft start InstallShardCmd ", kv.me, groupId)
-							err := kv.raftStartCmdNoWait(InstallShardCmd {
-								CmdBase: &CmdBase {
-									Type: CmdInstallShard,
-								},
+							cmd := InstallShardCmd {
+								CmdBase: CmdBase {},
 								Shards: reply.Shards,
 								ConfNum: confNum,
-							})
+							}
+							err := kv.raftStartCmdNoWait(common.CmdTypeInstallShard, utils.MsgpEncode(&cmd))
 							if err == common.ErrWrongLeader {
 								kv.log.Debugf("KVServer %d ShardPuller: want to send InstallShardCmd to peer, but im not leader!!",
 									kv.me)
@@ -242,13 +240,12 @@ func (kv *ShardKV) shardEraser() {
 					for _, node := range nodesOfGroup {
 						if ok := kv.rpcFunc(netw.ApiEraseShard, &args, &reply, node.NodeId); ok && reply.Err == common.OK {
 							kv.log.Infof("KVServer %d ShardEraser: send EraseShard to group %d success, raft start StopWaitingShardCmd ", kv.me, groupId)
-							err := kv.raftStartCmdNoWait(StopWaitingShardCmd {
-								CmdBase: &CmdBase {
-									Type: CmdStopWaiting,
-								},
+							cmd := StopWaitingShardCmd {
+								CmdBase: CmdBase {},
 								Shards:  shardsToErase,
 								ConfNum: confNum,
-							})
+							}
+							err := kv.raftStartCmdNoWait(common.CmdTypeStopWaiting, utils.MsgpEncode(&cmd))
 							if err == common.ErrWrongLeader {
 								kv.log.Debugf("KVServer %d ShardEraser: want to send StopWaitingShardCmd to peer, but im not leader!!",
 									kv.me)

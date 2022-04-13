@@ -63,10 +63,10 @@ func (sm *ShardMaster) deepCopyConfMap(conf ConfigV1) map[int][]ConfigNodeGroup 
 	return res
 }
 
-func (sm *ShardMaster) getWaitCh(idx int) chan *OpApplyRes {
+func (sm *ShardMaster) getWaitCh(idx int) chan interface{} {
 	ch, ok := sm.opApplied[idx]
 	if !ok {
-		ch = make(chan *OpApplyRes, 1)
+		ch = make(chan interface{}, 1)
 		sm.opApplied[idx] = ch
 	}
 	return ch
@@ -100,4 +100,14 @@ func (sm *ShardMaster) makeEndAndCall(addr string, nodeId int, api string, args 
 
 func (sm *ShardMaster) getCallName(api string, nodeId int) string {
 	return fmt.Sprintf("Node-%d.%s", nodeId, api)
+}
+
+func (sm *ShardMaster) isDuplicateAndSet(cid, seq int64) bool {
+	maxSeq, ok := sm.ckMaxSeq[cid]
+	if !ok || seq > maxSeq {
+		sm.ckMaxSeq[cid] = seq
+		return false
+	} else {
+		return true
+	}
 }

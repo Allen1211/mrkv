@@ -20,6 +20,14 @@ type Store interface {
 	Close()
 
 	DeleteFile()
+
+	Batch() Batch
+}
+
+type Batch interface {
+	Put(key string, val []byte)
+	Delete(key string)
+	Execute()		error
 }
 
 const KeyNodeGroup = "Node:Groups"

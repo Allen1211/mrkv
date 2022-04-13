@@ -7,8 +7,6 @@ import (
 
 	"mrkv/src/common/labgob"
 	"mrkv/src/master"
-	"mrkv/src/raft"
-
 	"mrkv/src/master/etc"
 )
 
@@ -30,7 +28,6 @@ func registerStructure()  {
 	labgob.Register(master.OpQueryCmd{})
 	labgob.Register(master.OpHeartbeatCmd{})
 	labgob.Register(master.OpShowCmd{})
-	labgob.Register(raft.EmptyCmd{})
 }
 
 func makeConfig() etc.MasterConf {

@@ -1,5 +1,7 @@
 package common
 
+//go:generate msgp
+
 type Err string
 
 const (

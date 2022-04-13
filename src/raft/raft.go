@@ -12,6 +12,7 @@ import (
 
 	"mrkv/src/common"
 	"mrkv/src/common/labgob"
+	"mrkv/src/common/utils"
 	"mrkv/src/netw"
 )
 
@@ -379,14 +380,15 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 	}
 
 	go func() {
+		cmd := InstallSnapshotMsg {
+			Data:             args.Data,
+			LastIncludedTerm: args.LastIncludedTerm,
+			LastIncludedIdx:  args.LastIncludedIdx,
+			LastIncludedEndLSN: args.LastIncludedEndLSN,
+		}
 		msg := ApplyMsg {
 			CommandValid: true,
-			Command: InstallSnapshotMsg {
-				Data:             args.Data,
-				LastIncludedTerm: args.LastIncludedTerm,
-				LastIncludedIdx:  args.LastIncludedIdx,
-				LastIncludedEndLSN: args.LastIncludedEndLSN,
-			},
+			Command: utils.EncodeCmdWrap(common.CmdTypeSnap, utils.MsgpEncode(&cmd)),
 			CommandTerm: rf.currTerm,
 		}
 		rf.logger.Debugf("Peer %d ready to apply snapshot msg to application", rf.me)
@@ -437,7 +439,7 @@ func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int,
 }
 
 
-func (rf *Raft) Start(command interface{}) (int, int, bool) {
+func (rf *Raft) Start(command []byte) (int, int, bool) {
 	if rf.getRole() != RoleLeader {
 		return 0, 0, false
 	}

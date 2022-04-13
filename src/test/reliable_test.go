@@ -57,12 +57,13 @@ func crudWithLinearCheck(n int, gg func(), t *testing.T) bool {
 			start := int64(time.Since(begin).Nanoseconds())
 
 			rd := rand.Int() % 1000
-			if rd < 300 {
-				if reply := cli.Append(ka[ki], []byte(nv)); reply.Err != common.OK && reply.Err != common.ErrNoKey {
-					t.Fatalf("operation failed: %s", reply.Err)
-				}
-				inp = porcupine.KvInput{Op: porcupine.OpAppend, Key: ka[ki], Value: nv}
-			} else if rd < 500 {
+			// if rd < 300 {
+			// 	if reply := cli.Append(ka[ki], []byte(nv)); reply.Err != common.OK && reply.Err != common.ErrNoKey {
+			// 		t.Fatalf("operation failed: %s", reply.Err)
+			// 	}
+			// 	inp = porcupine.KvInput{Op: porcupine.OpAppend, Key: ka[ki], Value: nv}
+			// } else
+			if rd < 500 {
 				if reply := cli.Put(ka[ki], []byte(nv)); reply.Err != common.OK && reply.Err != common.ErrNoKey {
 					t.Fatalf("operation failed: %s", reply.Err)
 				}

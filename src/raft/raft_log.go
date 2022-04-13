@@ -7,17 +7,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Allen1211/msgp/msgp"
 	"github.com/sirupsen/logrus"
 
-	"mrkv/src/common/labgob"
 	"mrkv/src/common/utils"
 )
-
-type LogEntry struct {
-	Command interface{}
-	Term    int
-	Index   int
-}
 
 type raftlog interface {
 	CpIdx()				int
@@ -176,8 +170,7 @@ func (rl *writeAheadRaftLog) append(ents ...LogEntry) bool {
 	lgs := make([]WriteAheadLogEntry, len(ents))
 	buf := new(bytes.Buffer)
 	for i, e := range ents {
-		encoder := labgob.NewEncoder(buf)
-		if err = encoder.Encode(e); err != nil {
+		if err = msgp.Encode(buf, &e); err != nil {
 			rl.logger.Errorf(err.Error())
 			return false
 		}
@@ -193,7 +186,6 @@ func (rl *writeAheadRaftLog) append(ents ...LogEntry) bool {
 			}
 			cpAtLeastLSN := rl.wal.cpLSN + (length - rl.wal.remain())
 			rl.mu.Unlock()
-			// rl.rf.mu.Unlock()
 
 			rl.rf.checkpointCh <- rl.cpIdx
 			rl.logger.Infof("RaftLog: start waiting checkpoint to %d", cpAtLeastLSN)
@@ -341,10 +333,7 @@ func (rl *writeAheadRaftLog) restore(data []byte) {
 			StartLSN: lg.LSN,
 			EndLSN: rl.wal.endLsnOf(&lg),
 		}
-		decoder := labgob.NewDecoder(bytes.NewReader(lg.Body))
-		if err = decoder.Decode(&ent.LogEntry); err != nil {
-			log.Fatal(err)
-		}
+		utils.MsgpDecode(lg.Body, &ent.LogEntry)
 		rl.logs = append(rl.logs, ent)
 		// rl.logger.Debugf("RaftLog: recover log : %v", ent)
 	}

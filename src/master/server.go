@@ -33,7 +33,7 @@ type ShardMaster struct {
 	configs 	[]ConfigV1 // indexed by config num
 	routeConfig	ConfigV1
 
-	opApplied   map[int]chan *OpApplyRes
+	opApplied   map[int]chan interface{}
 	ckMaxSeq    map[int64]int64
 	lastApplied int
 	appliedCond *sync.Cond
@@ -52,17 +52,10 @@ type Node struct {
 	LastBeat time.Time
 }
 
-type OpApplyRes struct {
-	op  Op
-	res interface{}
-	ok  bool
-	idx int
-}
-
-func (sm *ShardMaster) applyOp(op Op, idx int) (res interface{}, ok bool) {
+func (sm *ShardMaster) applyOp(opType int, op interface{}, idx int) (res interface{}, ok bool) {
 
 	var err error
-	switch op.GetType() {
+	switch opType {
 	case OpHeartbeat:
 		opHeartbeat := op.(OpHeartbeatCmd)
 		res, err = sm.executeHeartbeat(&opHeartbeat.Args)
@@ -97,10 +90,23 @@ func (sm *ShardMaster) applyer() {
 			if !msg.CommandValid {
 				continue
 			}
+			wrap := utils.DecodeCmdWrap(msg.Command)
 
 			sm.mu.Lock()
 
-			if snapCmd, ok := msg.Command.(raft.InstallSnapshotMsg); ok {
+			if wrap.Type != common.CmdTypeSnap {
+				if msg.CommandIndex <= sm.lastApplied {
+					sm.log.Debugf("ShardMaster %d Applyer msg idx(%d) less eq to lastApplied(%d)", sm.me, msg.CommandIndex, sm.lastApplied)
+					sm.mu.Unlock()
+					continue
+				}
+			}
+
+			switch wrap.Type {
+			case common.CmdTypeSnap:
+				snapCmd := raft.InstallSnapshotMsg{}
+				utils.MsgpDecode(wrap.Body, &snapCmd)
+
 				sm.log.Infof("recieved install snapshot msg, lastIncludedIdx=%d", snapCmd.LastIncludedIdx)
 				if !sm.rf.CondInstallSnapshot(snapCmd.LastIncludedTerm, snapCmd.LastIncludedIdx, snapCmd.LastIncludedEndLSN, snapCmd.Data) {
 					sm.mu.Unlock()
@@ -120,42 +126,59 @@ func (sm *ShardMaster) applyer() {
 				sm.appliedCond.Broadcast()
 				sm.mu.Unlock()
 				continue
-			}
 
-			if msg.CommandIndex <= sm.lastApplied {
-				sm.log.Debugf("ShardMaster %d Applyer msg idx(%d) less eq to lastApplied(%d)", sm.me, msg.CommandIndex, sm.lastApplied)
-				sm.mu.Unlock()
-				continue
-			}
-
-			if _, ok := msg.Command.(raft.EmptyCmd); ok {
+			case common.CmdTypeEmpty:
 				sm.lastApplied = msg.CommandIndex
 				sm.appliedCond.Broadcast()
 				sm.mu.Unlock()
 				continue
 			}
 
-			op := msg.Command.(Op)
-			var ok bool
 			var reply interface{}
-			if op.GetType() != OpQuery {
-				maxSeq, ok1 := sm.ckMaxSeq[op.GetCid()]
-				if !ok1 || op.GetSeq() > maxSeq {
-					reply, ok = sm.applyOp(op, msg.CommandIndex)
+			var err error
 
-					sm.ckMaxSeq[op.GetCid()] = op.GetSeq()
+			switch wrap.Type {
+			case common.CmdTypeQuery:
+				op := OpQueryCmd{}
+				utils.MsgpDecode(wrap.Body, &op)
+				reply, err = sm.executeQuery(&op.Args)
+			case common.CmdTypeShow:
+				op := OpShowCmd{}
+				utils.MsgpDecode(wrap.Body, &op)
+				reply, err = sm.executeShow(&op.Args)
+			case common.CmdTypeHeartbeat:
+				op := OpHeartbeatCmd{}
+				utils.MsgpDecode(wrap.Body, &op)
+				if sm.isDuplicateAndSet(op.Cid, op.Seq) {
+					break
 				}
-			} else {
-				reply, ok = sm.applyOp(op, msg.CommandIndex)
+				reply, err = sm.executeHeartbeat(&op.Args)
+			case common.CmdTypeJoin:
+				op := OpJoinCmd{}
+				utils.MsgpDecode(wrap.Body, &op)
+				if sm.isDuplicateAndSet(op.Cid, op.Seq) {
+					break
+				}
+				reply, err = sm.executeJoin(&op.Args)
+			case common.CmdTypeLeave:
+				op := OpLeaveCmd{}
+				utils.MsgpDecode(wrap.Body, &op)
+				if sm.isDuplicateAndSet(op.Cid, op.Seq) {
+					break
+				}
+				reply, err = sm.executeLeave(&op.Args)
+			case common.CmdTypeMove:
+				op := OpMoveCmd{}
+				utils.MsgpDecode(wrap.Body, &op)
+				if sm.isDuplicateAndSet(op.Cid, op.Seq) {
+					break
+				}
+				reply, err = sm.executeMove(&op.Args)
+			default:
+				panic("unreconized op type")
 			}
 
-			res := &OpApplyRes {
-				op:  op,
-				res: reply,
-				ok:  ok,
-				idx: msg.CommandIndex,
-			}
-			// DPrintf("ShardMaster %d Applyer apply op %d, res is %v", sm.me, msg.CommandIndex, res.res)
+			sm.log.Debugf("ShardMaster %d Applyer apply op %d, res is %v, err is %v", sm.me, msg.CommandIndex, reply, err)
 
 			sm.lastApplied = msg.CommandIndex
 			sm.appliedCond.Broadcast()
@@ -165,13 +188,13 @@ func (sm *ShardMaster) applyer() {
 				continue
 			}
 			sm.mu.Lock()
-			waitC := sm.getWaitCh(res.idx)
+			waitC := sm.getWaitCh(msg.CommandIndex)
 			sm.mu.Unlock()
 
-			sm.log.Debugf("ShardMaster %d Applyer ready to send msg %v to wait channel %d", sm.me, msg.CommandIndex, res.idx)
+			sm.log.Debugf("ShardMaster %d Applyer ready to send msg %v to wait channel", sm.me, msg.CommandIndex)
 			select {
-			case waitC <- res:
-				sm.log.Debugf("ShardMaster %d Applyer send msg %v to wait channel %d", sm.me, msg.CommandIndex, res.idx)
+			case waitC <- reply:
+				sm.log.Debugf("ShardMaster %d Applyer send msg %v to wait channel", sm.me, msg.CommandIndex)
 			default:
 			}
 
@@ -182,12 +205,14 @@ func (sm *ShardMaster) applyer() {
 	}
 }
 
-func (sm *ShardMaster) raftStart(op Op) (res interface{}, ok bool, err string) {
+func (sm *ShardMaster) raftStart(opType uint8, opBody []byte) (res interface{}, err string) {
+	wrap := utils.EncodeCmdWrap(opType, opBody)
+
 	var idx, term int
 	var isLeader bool
 
-	if idx, term, isLeader = sm.rf.Start(op); !isLeader {
-		return nil, false, ErrWrongLeader
+	if idx, term, isLeader = sm.rf.Start(wrap); !isLeader {
+		return nil, ErrWrongLeader
 	}
 	sm.log.Debugf("ShardMaster %d call raft.start res: idx=%d term=%d isLeader=%v", sm.me, idx, term, isLeader)
 	//	fmt.Printf("op: %v", op)
@@ -203,17 +228,12 @@ func (sm *ShardMaster) raftStart(op Op) (res interface{}, ok bool, err string) {
 	// wait for being applied
 	select {
 	case opRes := <-waitC:
-		if op.GetType() != opRes.op.GetType() || op.GetSeq() != opRes.op.GetSeq() || op.GetCid() != opRes.op.GetCid() {
-			sm.log.Warnf("ShardMaster %d apply command not match to the original wanted(%v) != actually(%v)",
-				sm.me, op, opRes.op)
-			return nil, false, ErrFailed
-		}
 		// sm.log.Debugf("ShardMaster %d receive res %v from waiting channel %v", sm.me, opRes.res, opRes.idx)
-		return opRes.res, opRes.ok, OK
+		return opRes, OK
 
 	case <-time.After(time.Second * 1):
-		sm.log.Warnf("ShardMaster %d op %v at idx %d has not commited after 1 secs", sm.me, op.GetSeq(), idx)
-		return nil, false, ErrFailed
+		sm.log.Warnf("ShardMaster %d op at idx %d has not commited after 1 secs", sm.me, idx)
+		return nil,  ErrFailed
 	}
 }
 
@@ -233,7 +253,7 @@ func (sm *ShardMaster) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) (e 
 	sm.log.Debugf("Received Heartbeat from node %d", args.NodeId)
 
 	op := OpHeartbeatCmd {
-		OpBase: &OpBase{
+		OpBase: OpBase{
 			Type:  OpHeartbeat,
 			Cid:   args.Cid,
 			Seq:   args.Seq,
@@ -241,7 +261,7 @@ func (sm *ShardMaster) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) (e 
 		Args: *args,
 	}
 
-	res, _, err := sm.raftStart(op)
+	res, err := sm.raftStart(common.CmdTypeHeartbeat, utils.MsgpEncode(&op))
 
 	if err != OK {
 		reply.Err = common.Err(err)
@@ -268,7 +288,7 @@ func (sm *ShardMaster) Join(args *JoinArgs, reply *JoinReply) (e error)  {
 	}
 
 	op := OpJoinCmd {
-		OpBase: &OpBase{
+		OpBase: OpBase{
 			Type:  OpJoin,
 			Cid:   args.Cid,
 			Seq:   args.Seq,
@@ -287,7 +307,7 @@ func (sm *ShardMaster) Join(args *JoinArgs, reply *JoinReply) (e error)  {
 		}
 	}
 
-	_, _, err := sm.raftStart(op)
+	_, err := sm.raftStart(common.CmdTypeJoin, utils.MsgpEncode(&op))
 	reply.Err = common.Err(err)
 	reply.WrongLeader = err == ErrWrongLeader
 
@@ -303,7 +323,7 @@ func (sm *ShardMaster) Leave(args *LeaveArgs, reply *LeaveReply) (e error) {
 	}
 
 	op := OpLeaveCmd {
-		OpBase: &OpBase {
+		OpBase: OpBase {
 			Type:  OpLeave,
 			Cid:   args.Cid,
 			Seq:   args.Seq,
@@ -312,7 +332,7 @@ func (sm *ShardMaster) Leave(args *LeaveArgs, reply *LeaveReply) (e error) {
 	}
 	sm.log.Infof("ShardMaster %d receive leave command args: %v", sm.me, args)
 
-	res, _, err := sm.raftStart(op)
+	res, err := sm.raftStart(common.CmdTypeLeave, utils.MsgpEncode(&op))
 	if err != OK {
 		reply.Err = common.Err(err)
 		reply.WrongLeader = err == ErrWrongLeader
@@ -338,7 +358,7 @@ func (sm *ShardMaster) Move(args *MoveArgs, reply *MoveReply) (e error)  {
 	}
 
 	op := OpMoveCmd{
-		OpBase: &OpBase {
+		OpBase: OpBase {
 			Type:  OpMove,
 			Cid:   args.Cid,
 			Seq:   args.Seq,
@@ -347,7 +367,7 @@ func (sm *ShardMaster) Move(args *MoveArgs, reply *MoveReply) (e error)  {
 	}
 	sm.log.Infof("ShardMaster %d receive move command args: %v", sm.me, args)
 
-	_, _, err := sm.raftStart(op)
+	_, err := sm.raftStart(common.CmdTypeMove, utils.MsgpEncode(&op))
 	reply.Err = common.Err(err)
 	reply.WrongLeader = err == ErrWrongLeader
 
@@ -363,7 +383,7 @@ func (sm *ShardMaster) Query(args *QueryArgs, reply *QueryReply) (e error) {
 	}
 
 	op := OpQueryCmd {
-		OpBase: &OpBase{
+		OpBase: OpBase{
 			Type:  OpQuery,
 			Cid:   args.Cid,
 			Seq:   args.Seq,
@@ -396,7 +416,7 @@ func (sm *ShardMaster) Query(args *QueryArgs, reply *QueryReply) (e error) {
 		return
 	}
 
-	res, _, err := sm.raftStart(op)
+	res, err := sm.raftStart(common.CmdTypeQuery, utils.MsgpEncode(&op))
 	if err != OK {
 		reply.Err = common.Err(err)
 		reply.WrongLeader = err == ErrWrongLeader
@@ -417,7 +437,7 @@ func (sm *ShardMaster) Show(args *ShowArgs, reply *ShowReply) (e error) {
 	}
 
 	op := OpShowCmd {
-		OpBase: &OpBase{
+		OpBase: OpBase{
 			Type:  OpShow,
 		},
 		Args: *args,
@@ -442,7 +462,7 @@ func (sm *ShardMaster) Show(args *ShowArgs, reply *ShowReply) (e error) {
 		sm.mu.RUnlock()
 		return nil
 	}
-	res, _, err := sm.raftStart(op)
+	res, err := sm.raftStart(common.CmdTypeShow, utils.MsgpEncode(&op))
 	if err != OK {
 		reply.Err = common.Err(err)
 	} else if res == nil {
@@ -489,14 +509,14 @@ func (sm *ShardMaster) readLatestConfig() (*ConfigV1, Err) {
 		return &sm.configs[len(sm.configs)-1], OK
 	}
 	op := OpQueryCmd {
-		OpBase: &OpBase{
+		OpBase: OpBase{
 			Type: OpQuery,
 		},
 		Args: QueryArgs{
 			Num: -1,
 		},
 	}
-	res, _, err := sm.raftStart(op)
+	res, err := sm.raftStart(common.CmdTypeQuery, utils.MsgpEncode(&op))
 
 	defer sm.mu.Lock()
 	if err != OK {
@@ -1247,7 +1267,7 @@ func StartServer(conf etc.MasterConf) *ShardMaster {
 
 	sm.nodes = map[int]*Node{}
 
-	sm.opApplied = make(map[int]chan *OpApplyRes)
+	sm.opApplied = make(map[int]chan interface{})
 	sm.appliedCond = sync.NewCond(&sync.Mutex{})
 	sm.ckMaxSeq = make(map[int64]int64)
 	sm.KilledC = make(chan int, 5)

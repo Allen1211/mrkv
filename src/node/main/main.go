@@ -53,7 +53,6 @@ func registerStructure()  {
 	labgob.Register(replica.StopWaitingShardCmd{})
 	labgob.Register(replica.EmptyCmd{})
 	labgob.Register(raft.InstallSnapshotMsg{})
-	labgob.Register(raft.EmptyCmd{})
 }
 
 func makeConfig() etc.NodeConf {

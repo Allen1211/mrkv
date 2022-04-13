@@ -39,7 +39,6 @@ func init() {
 	labgob.Register(master.OpQueryCmd{})
 	labgob.Register(master.OpHeartbeatCmd{})
 	labgob.Register(master.OpShowCmd{})
-	labgob.Register(raft.EmptyCmd{})
 	labgob.Register(replica.Op{})
 	labgob.Register(replica.CmdBase{})
 	labgob.Register(replica.KVCmd{})
@@ -50,7 +49,6 @@ func init() {
 	labgob.Register(replica.StopWaitingShardCmd{})
 	labgob.Register(replica.EmptyCmd{})
 	labgob.Register(raft.InstallSnapshotMsg{})
-	labgob.Register(raft.EmptyCmd{})
 
 	pprofHandler := http.NewServeMux()
 	pprofHandler.Handle("/debug/pprof/", http.HandlerFunc(pprof.Index))

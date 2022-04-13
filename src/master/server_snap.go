@@ -75,7 +75,7 @@ func (sm *ShardMaster) createSnapshot() ([]byte, error) {
 	buf := new(bytes.Buffer)
 	encoder := labgob.NewEncoder(buf)
 
-	pkg := SnapshotPackage{
+	pkg := SnapshotPackage {
 		LastApplied: sm.lastApplied,
 		Configs: 	 sm.configs,
 		RouteConfig: sm.routeConfig,

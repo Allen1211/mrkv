@@ -7,19 +7,9 @@ import (
 
 type ApplyMsg struct {
 	CommandValid bool
-	Command      interface{}
+	Command      []byte
 	CommandIndex int
 	CommandTerm  int
-}
-
-type InstallSnapshotMsg struct {
-	Data             []byte
-	LastIncludedIdx  int
-	LastIncludedTerm int
-	LastIncludedEndLSN  uint64
-}
-
-type EmptyCmd struct {
 }
 
 type RequestVoteArgs struct {

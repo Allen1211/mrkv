@@ -6,20 +6,11 @@ import (
 	"mrkv/src/raft"
 )
 
-type Cmd interface {
-	GetType() CmdType
-	GetSeq() 	int64
-	GetCid()	int64
-}
+//go:generate msgp
 
 type CmdBase struct {
-	Type CmdType
 	Cid  int64
 	Seq  int64
-}
-
-func (c *CmdBase) GetType() CmdType {
-	return c.Type
 }
 
 func (c *CmdBase) GetSeq() int64 {
@@ -37,39 +28,39 @@ type Op struct {
 }
 
 type EmptyCmd struct {
-	*CmdBase
+	CmdBase
 }
 
 type KVCmd struct {
-	*CmdBase
+	CmdBase
 	Op  Op
 }
 
 type SnapshotCmd struct {
-	*CmdBase
+	CmdBase
 	SnapInfo raft.InstallSnapshotMsg
 }
 
 type InstallShardCmd struct {
-	*CmdBase
+	CmdBase
 	ConfNum 	int
 	Shards  	map[int][]byte
 }
 
 type EraseShardCmd struct {
-	*CmdBase
+	CmdBase
 	ConfNum 	int
 	Shards      []int
 }
 
 type StopWaitingShardCmd struct {
-	*CmdBase
+	CmdBase
 	ConfNum 	int
 	Shards      []int
 }
 
 type ConfCmd struct {
-	*CmdBase
+	CmdBase
 	Config master.ConfigV1
 }
 

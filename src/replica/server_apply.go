@@ -1,11 +1,12 @@
 package replica
 
 import (
+	"encoding/binary"
 	"fmt"
 
 	"mrkv/src/common"
+	"mrkv/src/common/utils"
 	"mrkv/src/master"
-	"mrkv/src/raft"
 )
 
 func (kv *ShardKV) applyer() {
@@ -19,46 +20,39 @@ func (kv *ShardKV) applyer() {
 			if !msg.CommandValid {
 				continue
 			}
-			if snapMsg, ok := msg.Command.(raft.InstallSnapshotMsg); ok {
-				msg.Command = SnapshotCmd {
-					CmdBase: &CmdBase{
-						Type: CmdSnap,
-					},
-					SnapInfo: snapMsg,
-				}
-			} else if _, ok := msg.Command.(raft.EmptyCmd); ok {
-				msg.Command = EmptyCmd{
-					CmdBase: &CmdBase {
-						Type: CmdEmpty,
-					},
-				}
-			} else {
+			wrap := utils.DecodeCmdWrap(msg.Command)
+			needUpdateLastApplied := true
+			if wrap.Type != common.CmdTypeSnap {
 				kv.mu.RLock()
 				if msg.CommandIndex <= kv.lastApplied {
 					kv.mu.RUnlock()
 					continue
 				}
 				kv.mu.RUnlock()
+				needUpdateLastApplied = false
 			}
-			cmdI := msg.Command.(Cmd)
-			if cmdI.GetType() != CmdSnap {
-				// fmt.Printf("@@@Group %d KVServer %d apply %d type %v ConfNum %d cmd: %v",
-				// 	kv.gid, kv.me, msg.CommandIndex, cmdI.GetType(), kv.currConfig.Num, cmdI)
-			}
-			switch cmdI.GetType() {
-			case CmdEmpty:
-				// cmd := cmdI.(EmptyCmd)
+
+			switch wrap.Type {
+			case common.CmdTypeEmpty:
 				kv.log.Debugf("KVServer %d Applyer received empty msg from applyCh: %d, term is %d",
 					kv.me, msg.CommandIndex, msg.CommandTerm)
 
-			case CmdKV:
-				cmd := cmdI.(KVCmd)
+			case common.CmdTypeKV:
+				cmd := KVCmd{}
+				utils.MsgpDecode(wrap.Body,  &cmd)
 				kv.log.Infof("KVServer %d Applyer received kv msg from applyCh: %d", kv.me, msg.CommandIndex)
 
 				var val []byte
 				var ok bool
 				var err common.Err
-				val, ok, err, _ = kv.applyKVCmd(cmd)
+
+				if cmd.Op.Type == OpGet {
+					val, ok, err, _ = kv.applyKVCmd(cmd)
+				} else {
+					val, ok, err, _ = kv.applyKVCmdBatch(cmd, msg.CommandIndex)
+					needUpdateLastApplied = false
+				}
+
 				if err == common.ErrDuplicate {
 					kv.log.Infof("KVServer %d Applyer received kv msg from applyCh: idx=%d is duplicated", kv.me, msg.CommandIndex)
 					// continue
@@ -75,28 +69,33 @@ func (kv *ShardKV) applyer() {
 				}
 				kv.sendResToWaitC(res, msg.CommandTerm)
 
-			case CmdSnap:
+			case common.CmdTypeSnap:
 				kv.log.Infof("KVServer %d Applyer received install snapshot msg from applyCh", kv.me)
 
-				cmd := cmdI.(SnapshotCmd)
+				cmd := SnapshotCmd{}
+				utils.MsgpDecode(wrap.Body,  &cmd)
 				kv.applySnapshotCmd(cmd)
 
-			case CmdConf:
+			case common.CmdTypeConf:
 				kv.log.Infof("KVServer %d Applyer received re-configure msg from applyCh idx=%d", kv.me, msg.CommandIndex)
 
-				cmd := cmdI.(ConfCmd)
+				cmd := ConfCmd{}
+				utils.MsgpDecode(wrap.Body,  &cmd)
 				kv.applyReConfigure(cmd)
 
-			case CmdInstallShard:
+			case common.CmdTypeInstallShard:
 				kv.log.Infof("KVServer %d Applyer received install shard msg from applyCh idx=%d", kv.me, msg.CommandIndex)
 
-				cmd := cmdI.(InstallShardCmd)
+				cmd := InstallShardCmd{}
+				utils.MsgpDecode(wrap.Body,  &cmd)
 				kv.applyInstallShard(cmd)
 
-			case CmdEraseShard:
+			case common.CmdTypeEraseShard:
 				kv.log.Infof("KVServer %d Applyer received erase shard msg from applyCh, idx=%d", kv.me, msg.CommandIndex)
 
-				cmd := cmdI.(EraseShardCmd)
+				cmd := EraseShardCmd{}
+				utils.MsgpDecode(wrap.Body,  &cmd)
+
 				kv.applyEraseShard(cmd)
 
 				res := &EraseShardCmdApplyRes{
@@ -108,16 +107,17 @@ func (kv *ShardKV) applyer() {
 				}
 				kv.sendResToWaitC(res, msg.CommandTerm)
 
-			case CmdStopWaiting:
+			case common.CmdTypeStopWaiting:
 				kv.log.Infof("KVServer %d Applyer received stop waiting msg from applyCh, idx=%d", kv.me, msg.CommandIndex)
-				cmd := cmdI.(StopWaitingShardCmd)
+				cmd := StopWaitingShardCmd{}
+				utils.MsgpDecode(wrap.Body,  &cmd)
+
 				kv.applyStopWaitingShardCmd(cmd)
 			default:
-				fmt.Println(cmdI)
 				panic("unreconized cmd type")
 			}
 
-			if cmdI.GetType() != CmdSnap {
+			if needUpdateLastApplied {
 				kv.mu.Lock()
 				kv.SetLastApplied(msg.CommandIndex)
 				kv.appliedCond.Broadcast()
@@ -146,7 +146,7 @@ func (kv *ShardKV) applyKVCmd(cmd KVCmd) ([]byte, bool, common.Err, bool) {
 		if shard.IfDuplicateAndSet(cmd.Cid, cmd.Seq, true) {
 			return	nil, false, common.ErrDuplicate, false
 		}
-		kv.log.Debugf("KVServer %d update CkMaxSeq to %d, cmd=%v", kv.me, cmd.Seq, *cmd.CmdBase)
+		kv.log.Debugf("KVServer %d update CkMaxSeq to %d, cmd=%v", kv.me, cmd.Seq, cmd.CmdBase)
 	}
 
 	db := shard.Store
@@ -169,7 +169,12 @@ func (kv *ShardKV) applyKVCmd(cmd KVCmd) ([]byte, bool, common.Err, bool) {
 			return newVal, true, common.OK, true
 		}
 	case OpAppend:
-		if err := db.Append(fullKey, newVal); err != nil {
+		v, err := db.Get(fullKey)
+		if err != nil {
+			return nil, false, common.ErrFailed, true
+		}
+		newVal = append(v, newVal...)
+		if err := db.Put(fullKey, newVal); err != nil {
 			return nil, false, common.ErrFailed, true
 		} else {
 			return newVal, true, common.OK, true
@@ -183,6 +188,57 @@ func (kv *ShardKV) applyKVCmd(cmd KVCmd) ([]byte, bool, common.Err, bool) {
 	default:
 		panic("unreconized op type")
 	}
+}
+
+func (kv *ShardKV) applyKVCmdBatch(cmd KVCmd, idx int) ([]byte, bool, common.Err, bool) {
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+
+	op := cmd.Op
+	key, newVal := op.Key, op.Value
+
+	shardIdx := master.Key2shard(key)
+	shard := kv.shardDB[shardIdx]
+	if kv.currConfig.Shards[shardIdx] != kv.gid || !(shard.Status == master.SERVING || shard.Status == master.WAITING) {
+		return nil, false, common.ErrWrongGroup, false
+	}
+	if shard.IfDuplicateAndSet(cmd.Cid, cmd.Seq, false) {
+		return	nil, false, common.ErrDuplicate, false
+	}
+	kv.log.Debugf("KVServer %d update CkMaxSeq to %d, cmd=%v", kv.me, cmd.Seq, cmd.CmdBase)
+
+	batch := kv.store.Batch()
+
+	seqBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(seqBytes, uint64(cmd.Seq))
+	batch.Put(fmt.Sprintf(ShardDupPrefix, shardIdx, cmd.Cid), seqBytes)
+
+	db := shard.Store
+	fullKey := fmt.Sprintf(ShardUserDataPattern, shard.Idx, key)
+	switch op.Type {
+	case OpPut:
+		batch.Put(fullKey, newVal)
+	case OpAppend:
+		v, err := db.Get(fullKey)
+		if err != nil {
+			return nil, false, common.ErrFailed, true
+		}
+		newVal = append(v, newVal...)
+		batch.Put(fullKey, newVal)
+	case OpDelete:
+		batch.Delete(fullKey)
+	default:
+		panic("unreconized op type")
+	}
+
+	kv.SetLastAppliedBatch(idx, batch)
+
+	if err := batch.Execute(); err != nil {
+		return nil, false, common.ErrFailed, true
+	} else {
+		return newVal, true, common.OK, true
+	}
+
 }
 
 func (kv *ShardKV) applySnapshotCmd(cmd SnapshotCmd) {

@@ -24,7 +24,7 @@ const PageSize = 4096
 const (
 	LogFileMagic uint32 = 0x19283745
 	// LogFileCapacityDefault uint64 = 1 << 19
-	LogFileCapacityDefault uint64 = 1 << 23
+	LogFileCapacityDefault uint64 = 1 << 24
 	// LogFileCapacityDefault uint64 = 8192 * 4
 )
 

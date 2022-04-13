@@ -4,21 +4,18 @@ import (
 	"mrkv/src/common"
 )
 
+//go:generate msgp
+//msgp:ignore JoinReply LeaveReply MoveReply QueryReply HeartbeatReply ShowReply
+//msgp:ignore ShowNodeRes ShowGroupRes ShowGroupInfoByNode ShowShardRes NodeInfo
+//msgp:ignore TransferLeaderArgs TransferLeaderReply ShowMasterArgs ShowMasterReply
 
 const NShards = 10
-
-type Config struct {
-	Num    int              // config number
-	Shards [NShards]int     // shard -> gid
-	Groups map[int][]string // gid -> servers[]
-}
 
 type ConfigV1 struct {
 	Num	   		int
 	Shards 		[NShards]int
 	Groups 		map[int][]ConfigNodeGroup		// gid 		=> nodeIds
 	// Nodes		map[int]ConfigNode  		// nodeIds  => gids
-
 }
 
 type ConfigNodeGroup struct {
@@ -46,64 +43,41 @@ const (
 	NumOfOp
 )
 
-
-type Op interface {
-	GetType() 	int
-	GetSeq() 	int64
-	GetCid()	int64
-}
-
 type OpBase struct {
 	Type  	int
 	Cid 	int64
 	Seq 	int64
 }
 
-func (o *OpBase) GetType() int {
-	return o.Type
-}
-
-func (o *OpBase) GetSeq() int64 {
-	return o.Seq
-}
-
-func (o *OpBase) GetCid() int64 {
-	return o.Cid
-}
 
 type OpHeartbeatCmd struct {
-	*OpBase
+	OpBase
 	Args  HeartbeatArgs
 }
 
 type OpJoinCmd struct {
-	*OpBase
+	OpBase
 	Args JoinArgs
 }
 
 type OpLeaveCmd struct {
-	*OpBase
+	OpBase
 	Args LeaveArgs
 }
 
 type OpMoveCmd struct {
-	*OpBase
+	OpBase
 	Args MoveArgs
 }
 
 type OpQueryCmd struct {
-	*OpBase
+	OpBase
 	Args QueryArgs
 }
 
 type OpShowCmd struct {
-	*OpBase
+	OpBase
 	Args ShowArgs
-}
-
-type OpRemoveCmd struct {
-	*OpBase
-	Args RemoveArgs
 }
 
 type Err string
@@ -154,16 +128,6 @@ type QueryReply struct {
 	WrongLeader bool
 	Err         common.Err
 	Config      ConfigV1
-}
-
-type RemoveArgs struct {
-	BaseArgs
-	Num			int
-	GIDs   		[]int
-}
-
-type RemoveReply struct {
-	Err         common.Err
 }
 
 type HeartbeatArgs struct {

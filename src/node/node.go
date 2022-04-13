@@ -232,12 +232,6 @@ func (n *Node) startNewGroup(remoteGroup master.GroupInfo, prevConfig, currConfi
 
 	r := n.doStartReplica(gid, me, raftPeers)
 
-	// num := n.latestConf.Num
-	// if num > 0 {
-	// 	prevConfig = n.mck.Query(num-1)
-	// 	currConfig = n.mck.Query(num)
-	// }
-
 	r.InitConfig(prevConfig, currConfig)
 
 	return MakeGroup(gid, me, raftPeers, remoteGroup.Status, r)

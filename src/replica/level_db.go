@@ -176,3 +176,27 @@ func (lvs *LevelStore) DeleteFile()  {
 func (lvs *LevelStore) FileSize() int64  {
 	return utils.SizeOfDir(lvs.path)
 }
+
+func (lvs *LevelStore) Batch() Batch {
+	return &LevelBatch {
+		b: new(leveldb.Batch),
+		db: lvs.db,
+	}
+}
+
+type LevelBatch struct {
+	db  *leveldb.DB
+	b	*leveldb.Batch
+}
+
+func (batch *LevelBatch) Put(key string, val []byte) {
+	batch.b.Put([]byte(key), val)
+}
+
+func (batch *LevelBatch) Delete(key string) {
+	batch.b.Delete([]byte(key))
+}
+
+func (batch *LevelBatch) Execute() error {
+	return batch.db.Write(batch.b, nil)
+}

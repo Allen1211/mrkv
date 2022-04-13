@@ -12,6 +12,7 @@ import (
 
 	"mrkv/src/common"
 	"mrkv/src/common/labgob"
+	"mrkv/src/common/utils"
 	"mrkv/src/master"
 	"mrkv/src/netw"
 	"mrkv/src/raft"
@@ -98,6 +99,13 @@ func (kv *ShardKV) SetLastApplied(lastApplied int) {
 	if err := kv.store.Put(fmt.Sprintf(KeyLastApplied, kv.gid), buf); err != nil {
 		kv.log.Errorln(err)
 	}
+	kv.lastApplied = lastApplied
+}
+
+func (kv *ShardKV) SetLastAppliedBatch(lastApplied int, batch Batch) {
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uint64(lastApplied))
+	batch.Put(fmt.Sprintf(KeyLastApplied, kv.gid), buf)
 	kv.lastApplied = lastApplied
 }
 
@@ -199,8 +207,7 @@ func (kv *ShardKV) RecoverFromStore() (err error) {
 func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) (e error) {
 
 	cmd := KVCmd {
-		CmdBase: &CmdBase{
-			Type: CmdKV,
+		CmdBase: CmdBase{
 			Cid: args.Cid,
 			Seq: args.Seq,
 		},
@@ -230,8 +237,7 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) (e error) {
 		kv.mu.RUnlock()
 		return
 	}
-
-	if res, err := kv.raftStartCmdWait(cmd); err != common.OK {
+	if res, err := kv.raftStartCmdWait(common.CmdTypeKV, utils.MsgpEncode(&cmd)); err != common.OK {
 		reply.Err = err
 	} else {
 		reply.Err = res.GetErr()
@@ -246,8 +252,7 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) (e error) {
 func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) (e error) {
 
 	cmd := KVCmd {
-		CmdBase: &CmdBase{
-			Type: CmdKV,
+		CmdBase: CmdBase{
 			Cid: args.Cid,
 			Seq: args.Seq,
 		},
@@ -263,12 +268,12 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) (e erro
 		reply.Err = common.ErrWrongGroup
 		return
 	}
-	if kv.isDuplicated(args.Key, args.Cid, args.Seq) {
-		reply.Err = common.ErrDuplicate
-		return
-	}
+	// if kv.isDuplicated(args.Key, args.Cid, args.Seq) {
+	// 	reply.Err = common.ErrDuplicate
+	// 	return
+	// }
 
-	if res, err := kv.raftStartCmdWait(cmd); err != common.OK {
+	if res, err := kv.raftStartCmdWait(common.CmdTypeKV, utils.MsgpEncode(&cmd)); err != common.OK {
 		reply.Err = err
 	} else {
 		reply.Err = res.GetErr()
@@ -282,8 +287,7 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) (e erro
 func (kv *ShardKV) Delete(args *DeleteArgs, reply *DeleteReply) (e error) {
 
 	cmd := KVCmd {
-		CmdBase: &CmdBase{
-			Type: CmdKV,
+		CmdBase: CmdBase{
 			Cid: args.Cid,
 			Seq: args.Seq,
 		},
@@ -298,12 +302,12 @@ func (kv *ShardKV) Delete(args *DeleteArgs, reply *DeleteReply) (e error) {
 		reply.Err = common.ErrWrongGroup
 		return
 	}
-	if kv.isDuplicated(args.Key, args.Cid, args.Seq) {
-		reply.Err = common.ErrDuplicate
-		return
-	}
+	// if kv.isDuplicated(args.Key, args.Cid, args.Seq) {
+	// 	reply.Err = common.ErrDuplicate
+	// 	return
+	// }
 
-	if res, err := kv.raftStartCmdWait(cmd); err != common.OK {
+	if res, err := kv.raftStartCmdWait(common.CmdTypeKV, utils.MsgpEncode(&cmd)); err != common.OK {
 		reply.Err = err
 	} else {
 		reply.Err = res.GetErr()
@@ -368,13 +372,11 @@ func (kv *ShardKV) EraseShard(args *EraseShardArgs, reply *EraseShardReply ) (e 
 	kv.mu.RUnlock()
 
 	cmd := EraseShardCmd {
-		CmdBase: &CmdBase{
-			Type: CmdEraseShard,
-		},
+		CmdBase: CmdBase{},
 		Shards: args.Shards,
 		ConfNum: kv.currConfig.Num,
 	}
-	res, err := kv.raftStartCmdWait(cmd)
+	res, err := kv.raftStartCmdWait(common.CmdTypeEraseShard, utils.MsgpEncode(&cmd))
 	if err != common.OK {
 		reply.Err = err
 		reply.ConfNum = kv.currConfig.Num
@@ -416,46 +418,45 @@ func (kv *ShardKV) checkShardInCharge(key string) bool {
 	return true
 }
 
-func (kv *ShardKV) raftStartCmdNoWait(cmd Cmd) common.Err {
+func (kv *ShardKV) raftStartCmdNoWait(cmdType uint8, cmdBody []byte) common.Err {
+	wrap := utils.EncodeCmdWrap(cmdType, cmdBody)
+
 	var idx, term int
 	var isLeader bool
 
-	if idx, term, isLeader = kv.rf.Start(cmd); !isLeader {
+	if idx, term, isLeader = kv.rf.Start(wrap); !isLeader {
 		return common.ErrWrongLeader
 	}
-	kv.log.Debugf("KVServer %d call raft.start res: Idx=%d term=%d isLeader=%v cmd=%v", kv.me, idx, term, isLeader, cmd.GetType())
+	kv.log.Debugf("KVServer %d call raft.start res: Idx=%d term=%d isLeader=%v", kv.me, idx, term, isLeader)
 
 	return common.OK
 }
 
-func (kv *ShardKV) raftStartCmdWait(cmd Cmd) (ApplyRes, common.Err) {
+func (kv *ShardKV) raftStartCmdWait(cmdType uint8, cmdBody []byte) (ApplyRes, common.Err) {
+	cmdWrap := utils.EncodeCmdWrap(cmdType, cmdBody)
+
 	var idx, term int
 	var isLeader bool
 
-	if idx, term, isLeader = kv.rf.Start(cmd); !isLeader {
+	if idx, term, isLeader = kv.rf.Start(cmdWrap); !isLeader {
 		return nil, common.ErrWrongLeader
 	}
-	kv.log.Debugf("Group %d KVServer %d call raft.start res: Idx=%d term=%d isLeader=%v cmd=%v", kv.gid, kv.me, idx, term, isLeader, cmd)
+	kv.log.Debugf("Group %d KVServer %d call raft.start res: Idx=%d term=%d isLeader=%v", kv.gid, kv.me, idx, term, isLeader)
 
 	kv.mu.Lock()
 	waitC := kv.getWaitCh(idx)
 	kv.mu.Unlock()
 	defer kv.delWaitChLock(idx)
 
-	kv.log.Debugf("KVServer %d waiting at the channel %v, idx=%d, cmd.cid=%d, cmd.seq=%d", kv.me, waitC, idx, cmd.GetCid(), cmd.GetSeq())
+	kv.log.Debugf("KVServer %d waiting at the channel %v, idx=%d", kv.me, waitC, idx)
 	// wait for being applied
 	select {
 	case res := <-waitC:
-		if res.GetCmdType() != cmd.GetType()  {
-			kv.log.Debugf("KVServer %d apply command not match to the original wanted(%v) != actually(%v)",
-				kv.me, cmd, res)
-			return nil, common.ErrFailed
-		}
 		kv.log.Debugf("KVServer %d receive res from waiting channel %v", kv.me, res.GetIdx())
 		return res, common.OK
 
 	case <-time.After(time.Second * 1):
-		kv.log.Warnf("KVServer %d op %v at Idx %d has not commited after 1 secs", kv.me, cmd.GetSeq(), idx)
+		kv.log.Warnf("KVServer %d op %v at Idx %d has not commited after 1 secs", kv.me, idx)
 		return nil, common.ErrFailed
 	}
 }
