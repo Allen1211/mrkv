@@ -5,6 +5,9 @@ import (
 	"mrkv/src/netw"
 )
 
+//go:generate msgp
+//msgp:ignore ApplyMsg
+
 type ApplyMsg struct {
 	CommandValid bool
 	Command      []byte

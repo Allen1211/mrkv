@@ -32,9 +32,6 @@ type ShardKV struct {
 	applyCh      chan raft.ApplyMsg
 
 	gid          int
-	masters      []*netw.ClientEnd
-	mck			 *master.Clerk
-	maxraftstate int
 	persister	 *raft.DiskPersister
 
 	opApplied   map[int]chan ApplyRes
@@ -107,6 +104,7 @@ func (kv *ShardKV) SetLastAppliedBatch(lastApplied int, batch Batch) {
 	binary.LittleEndian.PutUint64(buf, uint64(lastApplied))
 	batch.Put(fmt.Sprintf(KeyLastApplied, kv.gid), buf)
 	kv.lastApplied = lastApplied
+	kv.appliedCond.Broadcast()
 }
 
 func (kv *ShardKV) Clear() {
@@ -143,6 +141,7 @@ func (kv *ShardKV) GetGroupInfo() *master.GroupInfo {
 			Gid: 	conf.Shards[id],
 			Status: shard.Status,
 			Size:   shard.Size(),
+			ExOwner: shard.ExOwner,
 		}
 		// sizeOfGroup += shards[id].Size
 	}
@@ -529,7 +528,6 @@ func StartServer(raftDataDir, logFileName string, logFileCap uint64 ,me int, pee
 	kv.me = me
 	kv.gid = gid
 
-	kv.mck = master.MakeClerk(kv.masters)
 	kv.store = store
 
 	kv.applyCh = make(chan raft.ApplyMsg)

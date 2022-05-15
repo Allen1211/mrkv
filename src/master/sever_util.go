@@ -91,9 +91,9 @@ func (sm *ShardMaster) waitAppliedTo(target int) {
 }
 
 func (sm *ShardMaster) makeEndAndCall(addr string, nodeId int, api string, args interface{}, reply interface{}) bool {
-	end := netw.MakeRPCEnd("Node", "tcp", addr)
+	end := netw.MakeRPCEnd(fmt.Sprintf("Node-%d", nodeId), addr)
 	defer end.Close()
-	ok := end.Call(sm.getCallName(api, nodeId), args, reply)
+	ok := end.Call(api, args, reply)
 	return ok
 
 }

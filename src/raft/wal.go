@@ -506,3 +506,33 @@ func (wal *WAL) willLoopBack(lsn uint64, step uint64) bool {
 func (wal *WAL) close() {
 	wal.file.Close()
 }
+
+type pageWriter struct {
+	buf  		[]byte
+	cap			uint64
+	dst			*os.File
+	startLsn	uint64
+	endLsn		uint64
+}
+
+func makePageWriter(startLsn uint64, cap uint64, dst *os.File) *pageWriter {
+	cap = pageAlign(cap)
+
+	pw := new(pageWriter)
+	pw.buf = make([]byte, cap)
+	pw.dst = dst
+	pw.startLsn = pageAlign(startLsn)
+	pw.endLsn = pw.startLsn + cap
+
+
+
+	return pw
+}
+
+func (pw *pageWriter) write(data []byte, lsn, length uint64) {
+
+}
+
+func pageAlign(lsn uint64) uint64 {
+	return lsn - (lsn % PageSize)
+}

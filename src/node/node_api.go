@@ -1,11 +1,9 @@
 package node
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"net"
-	"net/rpc"
-	"sync/atomic"
 
 	"mrkv/src/common"
 	"mrkv/src/netw"
@@ -13,27 +11,19 @@ import (
 	"mrkv/src/replica"
 )
 
-
 func (n *Node) StartRPCServer() error {
-	server := rpc.NewServer()
-	if err := server.RegisterName(fmt.Sprintf("Node-%d", n.Id) , n); err != nil {
+	name := fmt.Sprintf("Node-%d", n.Id)
+	rpcServ := netw.MakeRpcxServer(name, n.Addr())
+	if err := rpcServ.Register(name, n); err != nil {
 		return err
 	}
-	l, err := net.Listen("tcp", n.Addr())
-	if err != nil {
-		return err
-	}
-	n.listener = l
-
+	n.rpcServ = rpcServ
 	go func() {
-		for atomic.LoadInt32(&n.killed) == 0 {
-			conn, err2 := l.Accept()
-			if err2 != nil {
-				continue
-			}
-			go server.ServeConn(conn)
+		if err := rpcServ.Start(); err != nil {
+			n.logger.Errorf("%v", err)
 		}
 	}()
+
 	return nil
 }
 
@@ -58,7 +48,7 @@ func (n *Node) rpcFuncImpl(apiName string, args interface{}, reply interface{}, 
 		n.logger.Errorf("can't find node %d in nodeInfos", nodeId)
 		return false
 	} else {
-		return nodeEnd.Call(fmt.Sprintf("Node-%d.%s", nodeId, apiName), args, reply)
+		return nodeEnd.Call(apiName, args, reply)
 	}
 }
 
@@ -74,7 +64,7 @@ func (n *Node) route(gid, peer int) int {
 
 /* API of Replica */
 
-func (n *Node) Get(args *replica.GetArgs, reply *replica.GetReply) (e error) {
+func (n *Node) Get(ctx context.Context, args *replica.GetArgs, reply *replica.GetReply) (e error) {
 	if n.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
@@ -89,7 +79,7 @@ func (n *Node) Get(args *replica.GetArgs, reply *replica.GetReply) (e error) {
 	}
 }
 
-func (n *Node) PutAppend(args *replica.PutAppendArgs, reply *replica.PutAppendReply) (e error) {
+func (n *Node) PutAppend(ctx context.Context, args *replica.PutAppendArgs, reply *replica.PutAppendReply) (e error) {
 	if n.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
@@ -103,7 +93,7 @@ func (n *Node) PutAppend(args *replica.PutAppendArgs, reply *replica.PutAppendRe
 	}
 }
 
-func (n *Node) Delete(args *replica.DeleteArgs, reply *replica.DeleteReply) (e error) {
+func (n *Node) Delete(ctx context.Context, args *replica.DeleteArgs, reply *replica.DeleteReply) (e error) {
 	if n.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
@@ -118,7 +108,7 @@ func (n *Node) Delete(args *replica.DeleteArgs, reply *replica.DeleteReply) (e e
 }
 
 
-func (n *Node) PullShard(args *replica.PullShardArgs, reply *replica.PullShardReply) (e error) {
+func (n *Node) PullShard(ctx context.Context, args *replica.PullShardArgs, reply *replica.PullShardReply) (e error) {
 	if n.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
@@ -131,7 +121,7 @@ func (n *Node) PullShard(args *replica.PullShardArgs, reply *replica.PullShardRe
 	}
 }
 
-func (n *Node) EraseShard(args *replica.EraseShardArgs, reply *replica.EraseShardReply ) (e error) {
+func (n *Node) EraseShard(ctx context.Context, args *replica.EraseShardArgs, reply *replica.EraseShardReply ) (e error) {
 	if n.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
@@ -144,7 +134,7 @@ func (n *Node) EraseShard(args *replica.EraseShardArgs, reply *replica.EraseShar
 	}
 }
 
-func (n *Node) TransferLeader(args *raft.TransferLeaderArgs, reply *raft.TransferLeaderReply) (e error)  {
+func (n *Node) TransferLeader(ctx context.Context, args *raft.TransferLeaderArgs, reply *raft.TransferLeaderReply) (e error)  {
 	if n.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
@@ -160,7 +150,7 @@ func (n *Node) TransferLeader(args *raft.TransferLeaderArgs, reply *raft.Transfe
 
 /* API of Raft */
 
-func (n *Node) AppendEntries(args *raft.AppendEntriesArgs, reply *raft.AppendEntriesReply) (err error) {
+func (n *Node) AppendEntries(ctx context.Context, args *raft.AppendEntriesArgs, reply *raft.AppendEntriesReply) (err error) {
 	if n.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
@@ -172,7 +162,7 @@ func (n *Node) AppendEntries(args *raft.AppendEntriesArgs, reply *raft.AppendEnt
 	}
 }
 
-func (n *Node) RequestVote(args *raft.RequestVoteArgs, reply *raft.RequestVoteReply) (err error) {
+func (n *Node) RequestVote(ctx context.Context, args *raft.RequestVoteArgs, reply *raft.RequestVoteReply) (err error) {
 	if n.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
@@ -184,7 +174,7 @@ func (n *Node) RequestVote(args *raft.RequestVoteArgs, reply *raft.RequestVoteRe
 	}
 }
 
-func (n *Node) InstallSnapshot(args *raft.InstallSnapshotArgs, reply *raft.InstallSnapshotReply)(err error) {
+func (n *Node) InstallSnapshot(ctx context.Context, args *raft.InstallSnapshotArgs, reply *raft.InstallSnapshotReply)(err error) {
 	if n.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
@@ -196,7 +186,7 @@ func (n *Node) InstallSnapshot(args *raft.InstallSnapshotArgs, reply *raft.Insta
 	}
 }
 
-func (n *Node) ReadIndexFromFollower(args *raft.ReadIndexFromFollowerArgs, reply *raft.ReadIndexFromFollowerReply) (err error) {
+func (n *Node) ReadIndexFromFollower(ctx context.Context, args *raft.ReadIndexFromFollowerArgs, reply *raft.ReadIndexFromFollowerReply) (err error) {
 	if n.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
@@ -209,7 +199,7 @@ func (n *Node) ReadIndexFromFollower(args *raft.ReadIndexFromFollowerArgs, reply
 	}
 }
 
-func (n *Node) TimeoutNow(args *raft.TimeoutNowArgs, reply *raft.TimeoutNowReply)(err error) {
+func (n *Node) TimeoutNow(ctx context.Context, args *raft.TimeoutNowArgs, reply *raft.TimeoutNowReply)(err error) {
 	if n.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
@@ -223,7 +213,7 @@ func (n *Node) TimeoutNow(args *raft.TimeoutNowArgs, reply *raft.TimeoutNowReply
 
 func (n *Node) createNodeEnd(nodeId int)  {
 	node := n.nodeInfos[nodeId]
-	n.nodeEnds[nodeId] = netw.MakeRPCEnd(fmt.Sprintf("Node-%d", nodeId), "tcp", node.Addr)
+	n.nodeEnds[nodeId] = netw.MakeRPCEnd(fmt.Sprintf("Node-%d", nodeId), node.Addr)
 }
 
 func (n *Node) getOrCreateNodeEnd(nodeId int) *netw.ClientEnd {
@@ -235,7 +225,7 @@ func (n *Node) getOrCreateNodeEnd(nodeId int) *netw.ClientEnd {
 		return nil
 	}
 	if end, ok := n.nodeEnds[nodeId]; !ok {
-		end = netw.MakeRPCEnd(fmt.Sprintf("Node"), "tcp", node.Addr)
+		end = netw.MakeRPCEnd(fmt.Sprintf("Node-%d", nodeId),  node.Addr)
 		n.nodeEnds[nodeId] = end
 		return end
 	} else {

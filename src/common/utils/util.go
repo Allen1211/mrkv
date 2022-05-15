@@ -70,13 +70,13 @@ func SizeOfFile(path string) int {
 
 func DeleteFile(path string) {
 	if err := os.Remove(path); err != nil {
-		fmt.Printf("cannot delete file %s: %v\n", path, err)
+		// fmt.Printf("cannot delete file %s: %v\n", path, err)
 	}
 }
 
 func DeleteDir(path string) {
 	if err := os.RemoveAll(path); err != nil {
-		fmt.Printf("cannot delete dir %s: %v\n", path, err)
+		// fmt.Printf("cannot delete dir %s: %v\n", path, err)
 	}
 }
 

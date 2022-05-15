@@ -1,6 +1,7 @@
 package master
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -24,6 +25,7 @@ type ShardMaster struct {
 	me      int
 	servers []*netw.ClientEnd
 	listener net.Listener
+	rpcServ  *netw.RpcxServer
 	persister *raft.DiskPersister
 	rf      *raft.Raft
 	applyCh chan raft.ApplyMsg
@@ -50,37 +52,6 @@ type Node struct {
 	Groups	map[int]*GroupInfo
 	Status  NodeStatus
 	LastBeat time.Time
-}
-
-func (sm *ShardMaster) applyOp(opType int, op interface{}, idx int) (res interface{}, ok bool) {
-
-	var err error
-	switch opType {
-	case OpHeartbeat:
-		opHeartbeat := op.(OpHeartbeatCmd)
-		res, err = sm.executeHeartbeat(&opHeartbeat.Args)
-	case OpJoin:
-		opJoin := op.(OpJoinCmd)
-		res, err = sm.executeJoin(&opJoin.Args)
-	case OpLeave:
-		opLeave := op.(OpLeaveCmd)
-		res, err = sm.executeLeave(&opLeave.Args)
-	case OpMove:
-		opMove := op.(OpMoveCmd)
-		res, err = sm.executeMove(&opMove.Args)
-	case OpQuery:
-		opQuery := op.(OpQueryCmd)
-		res, err = sm.executeQuery(&opQuery.Args)
-	case OpShow:
-		opShow := op.(OpShowCmd)
-		res, err = sm.executeShow(&opShow.Args)
-	default:
-		panic("unreconized op type")
-	}
-	sm.lastApplied = idx
-
-	sm.log.Debugf("ShardMaster %d ready to apply op %d", sm.me, idx)
-	return res, err == nil
 }
 
 func (sm *ShardMaster) applyer() {
@@ -237,7 +208,7 @@ func (sm *ShardMaster) raftStart(opType uint8, opBody []byte) (res interface{}, 
 	}
 }
 
-func (sm *ShardMaster) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) (e error) {
+func (sm *ShardMaster) Heartbeat(ctx context.Context, args *HeartbeatArgs, reply *HeartbeatReply) (e error) {
 	if sm.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
@@ -282,7 +253,7 @@ func (sm *ShardMaster) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) (e 
 	return
 }
 
-func (sm *ShardMaster) Join(args *JoinArgs, reply *JoinReply) (e error)  {
+func (sm *ShardMaster) Join(ctx context.Context, args *JoinArgs, reply *JoinReply) (e error)  {
 	if sm.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
@@ -317,7 +288,7 @@ func (sm *ShardMaster) Join(args *JoinArgs, reply *JoinReply) (e error)  {
 	return
 }
 
-func (sm *ShardMaster) Leave(args *LeaveArgs, reply *LeaveReply) (e error) {
+func (sm *ShardMaster) Leave(ctx context.Context, args *LeaveArgs, reply *LeaveReply) (e error) {
 	if sm.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
@@ -352,7 +323,7 @@ func (sm *ShardMaster) Leave(args *LeaveArgs, reply *LeaveReply) (e error) {
 	return
 }
 
-func (sm *ShardMaster) Move(args *MoveArgs, reply *MoveReply) (e error)  {
+func (sm *ShardMaster) Move(ctx context.Context, args *MoveArgs, reply *MoveReply) (e error)  {
 	if sm.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
@@ -377,7 +348,7 @@ func (sm *ShardMaster) Move(args *MoveArgs, reply *MoveReply) (e error)  {
 	return
 }
 
-func (sm *ShardMaster) Query(args *QueryArgs, reply *QueryReply) (e error) {
+func (sm *ShardMaster) Query(ctx context.Context, args *QueryArgs, reply *QueryReply) (e error) {
 	if sm.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
@@ -431,7 +402,7 @@ func (sm *ShardMaster) Query(args *QueryArgs, reply *QueryReply) (e error) {
 	return
 }
 
-func (sm *ShardMaster) Show(args *ShowArgs, reply *ShowReply) (e error) {
+func (sm *ShardMaster) Show(ctx context.Context, args *ShowArgs, reply *ShowReply) (e error) {
 	if sm.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
@@ -476,7 +447,7 @@ func (sm *ShardMaster) Show(args *ShowArgs, reply *ShowReply) (e error) {
 	return
 }
 
-func (sm *ShardMaster) ShowMaster(args *ShowMasterArgs, reply *ShowMasterReply) (e error) {
+func (sm *ShardMaster) ShowMaster(ctx context.Context, args *ShowMasterArgs, reply *ShowMasterReply) (e error) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
@@ -591,9 +562,12 @@ func (sm *ShardMaster) executeHeartbeat(args *HeartbeatArgs) (reply *HeartbeatRe
 				if argGroup.Status != GroupLeaving {
 					break
 				}
+				if argGroup.ConfNum != localGroup.RemoteConfNum {
+					break
+				}
 				// => GroupRemoving : if shards are invalid
 				for _, s := range argGroup.Shards {
-					if s.Gid == localGroup.Id && s.Status != INVALID {
+					if s.ExOwner == localGroup.Id && s.Status != INVALID {
 						break outer
 					}
 				}
@@ -731,6 +705,7 @@ func (sm *ShardMaster) executeJoin(args *JoinArgs) (reply *JoinReply, err error)
 					Id: gid,
 					ConfNum: latestConfig.Num + 1,
 					Status: GroupJoined,
+					RemoteConfNum: latestConfig.Num + 1,
 				}
 			}
 		}
@@ -782,6 +757,7 @@ func (sm *ShardMaster) executeLeave(args *LeaveArgs) (reply *LeaveReply, err err
 		for _, ng := range ngs {
 			groupInfo := sm.nodes[ng.NodeId].Groups[gid]
 			groupInfo.Status = GroupLeaving
+			groupInfo.RemoteConfNum = latestConfig.Num + 1
 			sm.log.Infof("group %d in node %d status => GroupLeaving", gid, ng.NodeId)
 
 		}
@@ -1238,6 +1214,9 @@ func (sm *ShardMaster) Kill() {
 			sm.log.Errorf("fail to close rpc listener: %v", err)
 		}
 	}
+	if sm.rpcServ != nil {
+		sm.rpcServ.Stop()
+	}
 }
 
 func (sm *ShardMaster) Killed() bool {
@@ -1303,7 +1282,7 @@ func StartServer(conf etc.MasterConf) *ShardMaster {
 
 	servers := make([]*netw.ClientEnd, len(conf.Serv.Servers))
 	for i, addr := range conf.Serv.Servers {
-		server := netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), "tcp", addr)
+		server := netw.MakeRPCEnd(fmt.Sprintf("Master%d", i),  addr)
 		servers[i] = server
 	}
 	sm.servers = servers

@@ -19,7 +19,7 @@ func (kv *ShardKV) checkpointer()  {
 			}
 			kv.mu.RUnlock()
 
-			kv.doLogCompact(false, false)
+			kv.doLogCompact(false, true)
 
 			kv.mu.RLock()
 			kv.log.Infof("KVServer %d call raft LogCompact finished, now lastApplied is %d",

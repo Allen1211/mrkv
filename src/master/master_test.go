@@ -12,7 +12,7 @@ func Test1(t *testing.T) {
 	servers := []string{":8000", ":8001", ":8002"}
 	masters := make([]*netw.ClientEnd, len(servers))
 	for i, addr := range servers {
-		masters[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), "tcp", addr)
+		masters[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), addr)
 	}
 
 	clerk := MakeClerk(masters)
@@ -40,7 +40,7 @@ func Test2(t *testing.T) {
 	servers := []string{":8000", ":8001", ":8002"}
 	masters := make([]*netw.ClientEnd, len(servers))
 	for i, addr := range servers {
-		masters[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), "tcp", addr)
+		masters[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), addr)
 	}
 
 	clerk := MakeClerk(masters)
@@ -78,7 +78,7 @@ func Test3(t *testing.T) {
 	servers := []string{":8000", ":8001", ":8002"}
 	masters := make([]*netw.ClientEnd, len(servers))
 	for i, addr := range servers {
-		masters[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), "tcp", addr)
+		masters[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), addr)
 	}
 
 	clerk := MakeClerk(masters)
@@ -110,7 +110,7 @@ func Test4(t *testing.T) {
 	servers := []string{":8000", ":8001", ":8002"}
 	masters := make([]*netw.ClientEnd, len(servers))
 	for i, addr := range servers {
-		masters[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), "tcp", addr)
+		masters[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), addr)
 	}
 
 	clerk := MakeClerk(masters)
@@ -141,7 +141,7 @@ func Test5(t *testing.T) {
 	servers := []string{":8000", ":8001", ":8002"}
 	masters := make([]*netw.ClientEnd, len(servers))
 	for i, addr := range servers {
-		masters[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), "tcp", addr)
+		masters[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), addr)
 	}
 
 	clerk := MakeClerk(masters)

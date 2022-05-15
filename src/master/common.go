@@ -5,9 +5,6 @@ import (
 )
 
 //go:generate msgp
-//msgp:ignore JoinReply LeaveReply MoveReply QueryReply HeartbeatReply ShowReply
-//msgp:ignore ShowNodeRes ShowGroupRes ShowGroupInfoByNode ShowShardRes NodeInfo
-//msgp:ignore TransferLeaderArgs TransferLeaderReply ShowMasterArgs ShowMasterReply
 
 const NShards = 10
 
@@ -215,6 +212,8 @@ type GroupInfo struct {
 	Shards		map[int]ShardInfo
 	Size		int64
 	Peer		int
+
+	RemoteConfNum int
 }
 
 type ShardInfo struct {
@@ -225,6 +224,7 @@ type ShardInfo struct {
 	Capacity	uint64
 	RangeStart	string
 	RangeEnd	string
+	ExOwner		int
 }
 
 type TransferLeaderArgs struct {
@@ -237,7 +237,7 @@ type TransferLeaderReply struct {
 }
 
 type ShowMasterArgs struct {
-
+	Dummy			int
 }
 
 type ShowMasterReply struct {

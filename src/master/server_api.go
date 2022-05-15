@@ -1,64 +1,58 @@
 package master
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"net"
-	"net/rpc"
 
 	"mrkv/src/common"
+	"mrkv/src/netw"
 	"mrkv/src/raft"
 )
 
 func (sm *ShardMaster) StartRPCServer() error {
-	server := rpc.NewServer()
-	if err := server.RegisterName(fmt.Sprintf("Master%d", sm.me) , sm); err != nil {
+	name := fmt.Sprintf("Master%d", sm.me)
+	rpcServ := netw.MakeRpcxServer(name, sm.servers[sm.me].Addr)
+	if err := rpcServ.Register(name, sm); err != nil {
 		return err
 	}
-	l, err := net.Listen(sm.servers[sm.me].Network, sm.servers[sm.me].Addr)
-	if err != nil {
-		return err
-	}
-	sm.listener = l
+	sm.rpcServ = rpcServ
 	go func() {
-		for !sm.Killed() {
-			conn, err2 := l.Accept()
-			if err2 != nil {
-				continue
-			}
-			go server.ServeConn(conn)
+		if err := rpcServ.Start(); err != nil {
+			sm.log.Errorf("%v", err)
 		}
 	}()
+
 	return nil
 }
 
 func (sm *ShardMaster) rpcFunc(apiName string, args interface{}, reply interface{}, ids ...int) bool {
 	peer := ids[0]
-	return sm.servers[peer].Call(fmt.Sprintf("Master%d.%s", peer, apiName), args, reply)
+	return sm.servers[peer].Call(apiName, args, reply)
 }
 
-func (sm *ShardMaster) AppendEntries(args *raft.AppendEntriesArgs, reply *raft.AppendEntriesReply) (err error) {
+func (sm *ShardMaster) AppendEntries(ctx context.Context, args *raft.AppendEntriesArgs, reply *raft.AppendEntriesReply) (err error) {
 	if sm.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
 	return sm.rf.AppendEntries(args, reply)
 }
 
-func (sm *ShardMaster) RequestVote(args *raft.RequestVoteArgs, reply *raft.RequestVoteReply) (err error) {
+func (sm *ShardMaster) RequestVote(ctx context.Context, args *raft.RequestVoteArgs, reply *raft.RequestVoteReply) (err error) {
 	if sm.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
 	return sm.rf.RequestVote(args, reply)
 }
 
-func (sm *ShardMaster) InstallSnapshot(args *raft.InstallSnapshotArgs, reply *raft.InstallSnapshotReply)(err error) {
+func (sm *ShardMaster) InstallSnapshot(ctx context.Context, args *raft.InstallSnapshotArgs, reply *raft.InstallSnapshotReply)(err error) {
 	if sm.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
 	return sm.rf.InstallSnapshot(args, reply)
 }
 
-func (sm *ShardMaster) ReadIndexFromFollower(args *raft.ReadIndexFromFollowerArgs, reply *raft.ReadIndexFromFollowerReply) (err error) {
+func (sm *ShardMaster) ReadIndexFromFollower(ctx context.Context, args *raft.ReadIndexFromFollowerArgs, reply *raft.ReadIndexFromFollowerReply) (err error) {
 	if sm.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}

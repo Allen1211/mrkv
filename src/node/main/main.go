@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"net/http"
 	// "net/http/pprof"
 	_ "net/http/pprof"
 
@@ -26,10 +25,10 @@ func init() {
 	// }
 	// go server.ListenAndServe()
 
-	go func() {
-	 err := http.ListenAndServe("0.0.0.0:9091", nil)
-	 log.Println(err)
-	}()
+	// go func() {
+	//  err := http.ListenAndServe("0.0.0.0:9091", nil)
+	//  log.Println(err)
+	// }()
 }
 
 
@@ -72,7 +71,7 @@ func StartServer(conf etc.NodeConf) *node.Node {
 
 	masters := make([]*netw.ClientEnd, len(conf.Masters))
 	for i, addr := range conf.Masters {
-		masters[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), "tcp", addr)
+		masters[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), addr)
 	}
 
 	n := node.MakeNode(conf, masters, conf.Serv.LogLevel)

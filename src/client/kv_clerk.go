@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+
 	"mrkv/src/common"
 	"mrkv/src/master"
 	"mrkv/src/netw"
@@ -67,7 +68,7 @@ func (ck *KvClient) getEnd(nodeId int, addr string) *netw.ClientEnd {
 	if end, ok := ck.ends[nodeId]; ok {
 		return end
 	}
-	end := netw.MakeRPCEnd("Node", "tcp", addr)
+	end := netw.MakeRPCEnd(fmt.Sprintf("Node-%d", nodeId),  addr)
 	ck.ends[nodeId] = end
 	return end
 }
@@ -94,18 +95,18 @@ func (ck *KvClient) Get(key string) replica.GetReply  {
 				}
 				srv := ck.getEnd(servers[ck.rrIdx].NodeId, servers[ck.rrIdx].Addr)
 				var reply replica.GetReply
-				if ok := srv.Call(ck.getCallName(netw.ApiGet, servers[ck.rrIdx].NodeId), &args, &reply); !ok {
-					// log.Debugf("Client %d Fail to Send RPC to server %d\n", ck.id, ck.rrIdx)
+				if ok := srv.Call(netw.ApiGet, &args, &reply); !ok {
+					// fmt.Printf("Client %d Fail to Send RPC to server %d\n", ck.id, ck.rrIdx)
 					continue
 				}
 				if reply.Err == common.ErrFailed || reply.Err == common.ErrNodeClosed {
-					// log.Debugf("Client %d SendRPC Err: %s\n", ck.id, reply.Err)
+					// fmt.Printf("Client %d SendRPC Err: %s\n", ck.id, reply.Err)
 					continue
 				} else if reply.Err == common.ErrWrongLeader {
 					// fmt.Printf("Client SendRPC Err: %d is Not Leader, try another server\n", ck.rrIdx)
 					continue
 				} else if reply.Err == common.ErrWrongGroup {
-					// log.Debugf("Client %d SendRPC Err: %d wrong group, re-fetch currConfig and try again\n", ck.id, gid)
+					// fmt.Printf("Client %d SendRPC Err: %d wrong group, re-fetch currConfig and try again\n", ck.id, gid)
 					break
 				}
 				return reply
@@ -135,24 +136,24 @@ func (ck *KvClient) PutAppend(key string, value []byte, op string) replica.PutAp
 			for j := 0; j < len(servers); j++ {
 				srv := ck.getEnd(servers[i].NodeId, servers[i].Addr)
 				var reply replica.PutAppendReply
-				if ok := srv.Call(ck.getCallName(netw.ApiPutAppend, servers[i].NodeId), &args, &reply); !ok {
-					// log.Debugf("Client %d Fail to Send RPC to server %d\n", ck.id, i)
+				if ok := srv.Call(netw.ApiPutAppend, &args, &reply); !ok {
+					// fmt.Printf("Client %d Fail to Send RPC to server %d\n", ck.id, i)
 					i = (i + 1) % len(servers)
 					continue
 				}
 				if reply.Err == common.ErrFailed || reply.Err == common.ErrNodeClosed  {
-					// log.Debugf("Client %d SendRPC Err: %s\n", ck.id, reply.Err)
+					// fmt.Printf("Client %d SendRPC Err: %s\n", ck.id, reply.Err)
 					i = (i + 1) % len(servers)
 					continue
 				} else if reply.Err == common.ErrWrongLeader {
-					// log.Debugf("Client SendRPC Err: %d is Not Leader, try another server\n", i)
+					// fmt.Printf("Client SendRPC Err: %d is Not Leader, try another server\n", i)
 					i = (i + 1) % len(servers)
 					continue
 				} else if reply.Err == common.ErrWrongGroup {
-					// log.Debugf("Client %d SendRPC Err: %d wrong group, re-fetch currConfig and try again\n", ck.id, gid)
+					// fmt.Printf("Client %d SendRPC Err: %d wrong group, re-fetch currConfig and try again\n", ck.id, gid)
 					break
 				} else if reply.Err == common.ErrDuplicate {
-					// log.Debugf("Client %d SendRPC Err: duplicate\n",ck.id)
+					// fmt.Printf("Client %d SendRPC Err: duplicate\n",ck.id)
 					reply.Err = common.OK
 				}
 				ck.SetLeader(shard, i)
@@ -187,24 +188,24 @@ func (ck *KvClient) Delete(key string) replica.DeleteReply {
 			for j := 0; j < len(servers); j++ {
 				srv := ck.getEnd(servers[i].NodeId, servers[i].Addr)
 				var reply replica.DeleteReply
-				if ok := srv.Call(ck.getCallName(netw.ApiDelete, servers[i].NodeId), &args, &reply); !ok {
-					// log.Debugf("Client %d Fail to Send RPC to server %d\n", ck.id, i)
+				if ok := srv.Call(netw.ApiDelete, &args, &reply); !ok {
+					// fmt.Printf("Client %d Fail to Send RPC to server %d\n", ck.id, i)
 					i = (i + 1) % len(servers)
 					continue
 				}
 				if reply.Err == common.ErrFailed || reply.Err == common.ErrNodeClosed  {
-					// log.Debugf("Client %d SendRPC Err: %s\n", ck.id, reply.Err)
+					// fmt.Printf("Client %d SendRPC Err: %s\n", ck.id, reply.Err)
 					i = (i + 1) % len(servers)
 					continue
 				} else if reply.Err == common.ErrWrongLeader {
-					// log.Debugf("Client SendRPC Err: %d is Not Leader, try another server\n", i)
+					// fmt.Printf("Client SendRPC Err: %d is Not Leader, try another server\n", i)
 					i = (i + 1) % len(servers)
 					continue
 				} else if reply.Err == common.ErrWrongGroup {
-					// log.Debugf("Client %d SendRPC Err: %d wrong group, re-fetch currConfig and try again\n", ck.id, gid)
+					// fmt.Printf("Client %d SendRPC Err: %d wrong group, re-fetch currConfig and try again\n", ck.id, gid)
 					break
 				} else if reply.Err == common.ErrDuplicate {
-					// log.Debugf("Client %d SendRPC Err: duplicate\n",ck.id)
+					// fmt.Printf("Client %d SendRPC Err: duplicate\n",ck.id)
 					reply.Err = common.OK
 				}
 				ck.SetLeader(shard, i)
@@ -233,12 +234,12 @@ func (ck *KvClient) TransferLeader(gid, target int) common.Err {
 			for j := 0; j < len(servers); j++ {
 				args.Peer = j
 				srv := ck.getEnd(servers[j].NodeId, servers[j].Addr)
-				if ok := srv.Call(ck.getCallName(netw.ApiTransferLeader, servers[j].NodeId), &args, &reply); !ok {
-					// log.Debugf("Client %d Fail to Send RPC to server %d\n", ck.id, j)
+				if ok := srv.Call(netw.ApiTransferLeader, &args, &reply); !ok {
+					// fmt.Printf("Client %d Fail to Send RPC to server %d\n", ck.id, j)
 					continue
 				}
 				if reply.Err == common.ErrWrongLeader {
-					// log.Debugf("Client SendRPC Err: %d is Not Leader, try another server\n", j)
+					// fmt.Printf("Client SendRPC Err: %d is Not Leader, try another server\n", j)
 					continue
 				}
 				return reply.Err

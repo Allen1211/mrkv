@@ -29,6 +29,7 @@ func (kv *ShardKV) applyer() {
 					continue
 				}
 				kv.mu.RUnlock()
+			} else {
 				needUpdateLastApplied = false
 			}
 
@@ -73,7 +74,7 @@ func (kv *ShardKV) applyer() {
 				kv.log.Infof("KVServer %d Applyer received install snapshot msg from applyCh", kv.me)
 
 				cmd := SnapshotCmd{}
-				utils.MsgpDecode(wrap.Body,  &cmd)
+				utils.MsgpDecode(wrap.Body,  &cmd.SnapInfo)
 				kv.applySnapshotCmd(cmd)
 
 			case common.CmdTypeConf:
@@ -142,7 +143,7 @@ func (kv *ShardKV) applyKVCmd(cmd KVCmd) ([]byte, bool, common.Err, bool) {
 		return nil, false, common.ErrWrongGroup, false
 	}
 
-	if op.Type == OpPut || op.Type == OpAppend {
+	if op.Type == OpPut || op.Type == OpAppend || op.Type == OpDelete {
 		if shard.IfDuplicateAndSet(cmd.Cid, cmd.Seq, true) {
 			return	nil, false, common.ErrDuplicate, false
 		}
@@ -244,7 +245,7 @@ func (kv *ShardKV) applyKVCmdBatch(cmd KVCmd, idx int) ([]byte, bool, common.Err
 func (kv *ShardKV) applySnapshotCmd(cmd SnapshotCmd) {
 	snapshotInfo := cmd.SnapInfo
 
-	kv.log.Infof("KVServer %d received snapshot cmd: lastIncludedIdx=%d", snapshotInfo.LastIncludedIdx)
+	kv.log.Infof("KVServer %d received snapshot cmd: lastIncludedIdx=%d", kv.me, snapshotInfo.LastIncludedIdx)
 	kv.mu.Lock()
 
 	if !kv.rf.CondInstallSnapshot(snapshotInfo.LastIncludedTerm, snapshotInfo.LastIncludedIdx, snapshotInfo.LastIncludedEndLSN, snapshotInfo.Data) {

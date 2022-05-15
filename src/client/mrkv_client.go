@@ -36,7 +36,7 @@ type MrKVClient struct {
 func MakeMrKVClient(masters []string) *MrKVClient {
 	ends := make([]*netw.ClientEnd, len(masters))
 	for i, addr := range masters {
-		ends[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), "tcp", addr)
+		ends[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i),  addr)
 	}
 	mc := master.MakeClerk(ends)
 	kvc := MakeUserClient(ends)
@@ -75,7 +75,11 @@ func (c *MrKVClient) Leave(gid int) common.Err {
 }
 
 func (c *MrKVClient) ShowNodes(nodeIds []int) ([]master.ShowNodeRes, common.Err){
-	args := master.ShowArgs{}
+	args := master.ShowArgs {
+		GIDs: []int{},
+		NodeIds: []int{},
+		ShardIds: []int{},
+	}
 	args.Nodes = true
 	args.NodeIds = nodeIds
 
@@ -84,7 +88,11 @@ func (c *MrKVClient) ShowNodes(nodeIds []int) ([]master.ShowNodeRes, common.Err)
 }
 
 func (c *MrKVClient) ShowGroups(gids []int)	([]master.ShowGroupRes, common.Err) {
-	args := master.ShowArgs{}
+	args := master.ShowArgs {
+		GIDs: []int{},
+		NodeIds: []int{},
+		ShardIds: []int{},
+	}
 	args.Groups = true
 	args.GIDs = gids
 
@@ -93,7 +101,11 @@ func (c *MrKVClient) ShowGroups(gids []int)	([]master.ShowGroupRes, common.Err) 
 }
 
 func (c *MrKVClient) ShowShards(gids []int)	([]master.ShowShardRes, common.Err) {
-	args := master.ShowArgs{}
+	args := master.ShowArgs {
+		GIDs: []int{},
+		NodeIds: []int{},
+		ShardIds: []int{},
+	}
 	args.Shards = true
 	args.GIDs = gids
 

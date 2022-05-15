@@ -18,7 +18,7 @@ type raftlog interface {
 	CpTerm()			int
 	CpLSN()				uint64
 	checkpoint()		(int, int)
-	idxAt(idx int)		LogEntry
+	idxAt(idx int)		*LogEntry
 	posAt(pos int) 		LogEntry
 	first()				LogEntry
 	last()				LogEntry
@@ -96,19 +96,16 @@ func (rl *writeAheadRaftLog) checkpoint() (int, int) {
 	return rl.cpIdx, rl.cpTerm
 }
 
-func (rl *writeAheadRaftLog) idxAt(idx int) LogEntry {
-
+func (rl *writeAheadRaftLog) idxAt(idx int) *LogEntry {
 	return rl.idxAtNoLock(idx)
 }
 
-func (rl *writeAheadRaftLog) idxAtNoLock(idx int) LogEntry {
-
+func (rl *writeAheadRaftLog) idxAtNoLock(idx int) *LogEntry {
 	pos := idx - rl.cpIdx - 1
-	return rl.logs[pos].LogEntry
+	return &rl.logs[pos].LogEntry
 }
 
 func (rl *writeAheadRaftLog) posAt(pos int) LogEntry {
-
 	return rl.logs[pos].LogEntry
 }
 
@@ -206,7 +203,6 @@ func (rl *writeAheadRaftLog) append(ents ...LogEntry) bool {
 		}
 	}
 	rl.logs = append(rl.logs, lgs...)
-
 	return true
 }
 
@@ -315,7 +311,7 @@ func (rl *writeAheadRaftLog) restore(data []byte) {
 	var logFileName = string(data)
 	rl.logger.Infof("RaftLog %d restore from log file %s", rl.rf.me, logFileName)
 
-	if rl.wal, err = MakeWAL(logFileName, false, 0, rl.logger); err != nil {
+	if rl.wal, err = MakeWAL(logFileName, false, rl.logFileCap, rl.logger); err != nil {
 		log.Fatal(err)
 	}
 

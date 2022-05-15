@@ -13,6 +13,7 @@ import (
 // You will have to modify these definitions.
 //
 
+//go:generate msgp
 
 const (
 	OpGet    = "GET"

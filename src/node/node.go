@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"net"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,6 +25,7 @@ type Node struct {
 	logger		*logrus.Logger
 	mu 			sync.RWMutex
 	listener    net.Listener
+	rpcServ     *netw.RpcxServer
 	conns		[]*net.Conn
 	userConf	etc.NodeConf
 
@@ -77,7 +79,12 @@ func MakeNode(userConf etc.NodeConf, masters []*netw.ClientEnd, logLevel string)
 
 	node.recover()
 
-	go node.daemon("heartbeater", node.heartbeat, 1*time.Second)
+	go node.daemon("heartbeater", node.heartbeat, 100*time.Millisecond)
+
+	go func() {
+		err := http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", 9090 + node.Id), nil)
+		node.logger.Errorf("%v", err)
+	}()
 
 	return node
 }
@@ -91,10 +98,8 @@ func (n *Node) Kill() {
 	}
 	n.KilledC <- 1
 	atomic.StoreInt32(&n.killed, 1)
-	if n.listener != nil {
-		n.listener.Close()
-	}
 	n.store.Close()
+	n.rpcServ.Stop()
 }
 
 func (n *Node) Killed() bool {

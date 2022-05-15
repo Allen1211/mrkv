@@ -1,11 +1,11 @@
 package test
 
 import (
-	"bufio"
 	"bytes"
 	crand "crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/http/pprof"
 	"sort"
@@ -16,7 +16,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"mrkv/src/client"
-	"mrkv/src/client/etc"
 	"mrkv/src/common"
 	"mrkv/src/common/labgob"
 	"mrkv/src/common/utils"
@@ -70,16 +69,14 @@ func startMaster(id int) *master.ShardMaster {
 	conf := etc_master.MakeDefaultConfig()
 	conf.Serv.Me = id
 	conf.Serv.Servers = addrs
-	conf.Serv.LogLevel = "warn"
-	conf.Raft.LogLevel = "warn"
+	conf.Serv.LogLevel = "panic"
+	conf.Raft.LogLevel = "panic"
 
 	server := master.StartServer(conf)
 	if server != nil {
-		go func() {
-			if err := server.StartRPCServer(); err != nil {
-				log.Fatalf("Start Raft RPC Server Error: %v", err)
-			}
-		}()
+		if err := server.StartRPCServer(); err != nil {
+			log.Fatalf("Start Raft RPC Server Error: %v", err)
+		}
 	}
 
 	return server
@@ -92,8 +89,8 @@ func startMasters(n int) []*master.ShardMaster {
 		masterConfs[i] = etc_master.MakeDefaultConfig()
 		masterConfs[i].Serv.Me = i
 		masterConfs[i].Serv.Servers = addrs[:n]
-		masterConfs[i].Serv.LogLevel = "warn"
-		masterConfs[i].Raft.LogLevel = "warn"
+		masterConfs[i].Serv.LogLevel = "panic"
+		masterConfs[i].Raft.LogLevel = "panic"
 	}
 	servers := make([]*master.ShardMaster, n)
 	wg := sync.WaitGroup{}
@@ -117,7 +114,7 @@ func startMasters(n int) []*master.ShardMaster {
 func startNode(id int) *node.Node {
 	masters := make([]*netw.ClientEnd, len(masterAddrs))
 	for i, addr := range masterAddrs {
-		masters[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), "tcp", addr)
+		masters[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), addr)
 	}
 	conf := etc_node.MakeDefaultConfig()
 	conf.NodeId = id
@@ -125,8 +122,8 @@ func startNode(id int) *node.Node {
 	conf.Port = 8100 + id
 	conf.Masters = masterAddrs
 
-	conf.Serv.LogLevel = "warn"
-	conf.Raft.LogLevel = "warn"
+	conf.Serv.LogLevel = "panic"
+	conf.Raft.LogLevel = "panic"
 
 	nd := node.MakeNode(conf, masters, conf.Serv.LogLevel)
 	go func() {
@@ -141,7 +138,7 @@ func startNode(id int) *node.Node {
 func startNodes(n int) []*node.Node {
 	masters := make([]*netw.ClientEnd, len(masterAddrs))
 	for i, addr := range masterAddrs {
-		masters[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), "tcp", addr)
+		masters[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), addr)
 	}
 	nodes := make([]*node.Node, n)
 	for i := 1; i <= n; i++ {
@@ -151,8 +148,8 @@ func startNodes(n int) []*node.Node {
 		conf.Port = 8100 + i
 		conf.Masters = masterAddrs
 
-		conf.Serv.LogLevel = "warn"
-		conf.Raft.LogLevel = "warn"
+		conf.Serv.LogLevel = "panic"
+		conf.Raft.LogLevel = "panic"
 
 		nd := node.MakeNode(conf, masters, conf.Serv.LogLevel)
 		if err := nd.StartRPCServer(); err != nil {
@@ -181,7 +178,7 @@ func stopNode(nodes ...*node.Node)  {
 func makeMasterClient() *master.Clerk {
 	masters := make([]*netw.ClientEnd, len(masterAddrs))
 	for i, addr := range masterAddrs {
-		masters[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), "tcp", addr)
+		masters[i] =  netw.MakeRPCEnd(fmt.Sprintf("Master%d", i), addr)
 	}
 	return master.MakeClerk(masters)
 }
@@ -227,36 +224,30 @@ func TestNodeStartUp(t *testing.T) {
 
 func TestShowMaster(t *testing.T) {
 	servers := startMasters(3)
-	time.Sleep(1*time.Second)
+	time.Sleep(5*time.Second)
 	//
 	// nodes := startNodes(3)
 	// time.Sleep(3*time.Second)
 
-	wg := sync.WaitGroup{}
 	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func() {
-			cli := client.MakeMrKVClient(masterAddrs)
-			for j := 0; j < 10; j++ {
-				showMasterRes := cli.ShowMaster()
-				if len(showMasterRes) != 3 {
-					t.Fatalf("len of showMasterRes %d != 3", len(showMasterRes))
+		cli := client.MakeMrKVClient(masterAddrs)
+		for j := 0; j < 10; j++ {
+			showMasterRes := cli.ShowMaster()
+			if len(showMasterRes) != 3 {
+				t.Fatalf("len of showMasterRes %d != 3", len(showMasterRes))
+				t.FailNow()
+			}
+			for i, res := range showMasterRes {
+				if res.Status != "Normal" {
+					t.Fatalf("master %d status is %s", i, res.Status)
 					t.FailNow()
 				}
-				for i, res := range showMasterRes {
-					if res.Status != "Normal" {
-						t.Fatalf("master %d status is %s", i, res.Status)
-						t.FailNow()
-					}
-				}
 			}
-			wg.Done()
-		}()
+		}
 	}
-	wg.Wait()
 
 	servers[0].Kill()
-	time.Sleep(1 * time.Second)
+	time.Sleep(5 * time.Second)
 
 	cli := client.MakeMrKVClient(masterAddrs)
 	for j := 0; j < 10; j++ {
@@ -642,7 +633,7 @@ func TestJoinLeaveWhileConcurrentGetPut(t *testing.T) {
 	cli.Join(map[int][]int{
 		300: {1, 2, 4},
 	})
-	fmt.Println(3)
+	// fmt.Println(3)
 	time.Sleep(5*time.Second)
 
 	wg := sync.WaitGroup{}
@@ -708,55 +699,55 @@ func TestJoinLeaveWhileConcurrentGetPut(t *testing.T) {
 	}()
 
 	for i := 0; i < 1; i++ {
-		fmt.Println("###################")
+		// fmt.Println("###################")
 
 		for cli.Join(map[int][]int{100: {1, 4, 5}, 200: {2, 3, 4},}) != common.OK {
-			t.Errorf("join: err")
+			// t.Errorf("join: err")
 			time.Sleep(1*time.Second)
 		}
-		fmt.Println(123)
+		// fmt.Println(123)
 		time.Sleep(5*time.Second)
 
 		for cli.Leave([]int{200}) != common.OK {
-			t.Errorf("leave: err")
+			// t.Errorf("leave: err")
 			time.Sleep(1*time.Second)
 		}
-		fmt.Println(13)
+		// fmt.Println(13)
 		time.Sleep(5*time.Second)
 
 		for  cli.Leave([]int{100}) != common.OK {
-			t.Errorf("leave: err")
+			// t.Errorf("leave: err")
 			time.Sleep(1*time.Second)
 		}
-		fmt.Println(3)
+		// fmt.Println(3)
 		time.Sleep(5*time.Second)
 
 		for cli.Join(map[int][]int{200: {1, 2, 3}}) != common.OK {
-			t.Errorf("join: err")
+			// t.Errorf("join: err")
 			time.Sleep(1*time.Second)
 		}
-		fmt.Println(23)
+		// fmt.Println(23)
 		time.Sleep(5*time.Second)
 
 		for cli.Join(map[int][]int{100: {2, 3, 5}}) != common.OK {
-			t.Errorf("join: err")
+			// t.Errorf("join: err")
 			time.Sleep(1*time.Second)
 		}
-		fmt.Println(123)
+		// fmt.Println(123)
 		time.Sleep(5*time.Second) // 83
 
 		for cli.Leave([]int{200}) != common.OK {
-			t.Errorf("leave: err")
+			// t.Errorf("leave: err")
 			time.Sleep(1*time.Second)
 		}
-		fmt.Println(13)
+		// fmt.Println(13)
 		time.Sleep(5*time.Second)
 
 		for cli.Leave([]int{100}) != common.OK {
-			t.Errorf("leave: err")
+			// t.Errorf("leave: err")
 			time.Sleep(1*time.Second)
 		}
-		fmt.Println(3)
+		// fmt.Println(3)
 		time.Sleep(5*time.Second)
 	}
 	wg.Wait()
@@ -840,6 +831,7 @@ func TestRestart(t *testing.T) {
 	stopNode(nodes...)
 }
 
+/*
 func TestConsoleClient(t *testing.T) {
 	masters := startMasters(3)
 	time.Sleep(1*time.Second)
@@ -873,4 +865,37 @@ func TestConsoleClient(t *testing.T) {
 
 	stopMaster(masters...)
 	stopNode(nodes...)
+}*/
+
+func TestGateWay(t *testing.T) {
+	args := &master.ShowMasterArgs{}
+	data := utils.MsgpEncode(args)
+	req, err := http.NewRequest("POST", "http://127.0.0.1:8000/", bytes.NewReader(data))
+	if err != nil {
+		log.Fatal("failed to create request: ", err)
+		return
+	}
+
+	h := req.Header
+	h.Set("X-RPCX-MesssageType", "0")
+	h.Set("X-RPCX-SerializeType", "5")
+	h.Set("X-RPCX-ServicePath", "Master0")
+	h.Set("X-RPCX-ServiceMethod", "ShowMaster")
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Fatal("failed to call: ", err)
+	}
+	defer res.Body.Close()
+
+	// handle http response
+	replyData, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		log.Fatal("failed to read response: ", err)
+	}
+
+	reply := &master.ShowMasterReply{}
+	utils.MsgpDecode(replyData, reply)
+
+	fmt.Printf("%+v", reply)
 }
