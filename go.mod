@@ -1,4 +1,4 @@
-module mrkv
+module github.com/Allen1211/mrkv
 
 go 1.16
 
