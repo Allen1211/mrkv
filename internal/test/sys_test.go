@@ -31,13 +31,13 @@ import (
 var masterAddrs = []string{":8000", ":8001", ":8002"}
 
 func init() {
-	labgob2.Register(master2.OpBase{})
-	labgob2.Register(master2.OpJoinCmd{})
-	labgob2.Register(master2.OpLeaveCmd{})
-	labgob2.Register(master2.OpMoveCmd{})
-	labgob2.Register(master2.OpQueryCmd{})
-	labgob2.Register(master2.OpHeartbeatCmd{})
-	labgob2.Register(master2.OpShowCmd{})
+	labgob2.Register(common2.OpBase{})
+	labgob2.Register(common2.OpJoinCmd{})
+	labgob2.Register(common2.OpLeaveCmd{})
+	labgob2.Register(common2.OpMoveCmd{})
+	labgob2.Register(common2.OpQueryCmd{})
+	labgob2.Register(common2.OpHeartbeatCmd{})
+	labgob2.Register(common2.OpShowCmd{})
 	labgob2.Register(replica2.Op{})
 	labgob2.Register(replica2.CmdBase{})
 	labgob2.Register(replica2.KVCmd{})
@@ -297,7 +297,7 @@ func TestShowNode(t *testing.T) {
 		return showNodes[i].Id < showNodes[j].Id
 	})
 	for _, n := range showNodes {
-		if n.Found && n.Status != master2.NodeNormal.String() {
+		if n.Found && n.Status != common2.NodeNormal.String() {
 			t.FailNow()
 		}
 	}
@@ -315,7 +315,7 @@ func TestShowNode(t *testing.T) {
 		t.FailNow()
 	}
 	n := showNodes[0]
-	if !n.Found || n.Id != 1 || n.Status != master2.NodeDisconnect.String() {
+	if !n.Found || n.Id != 1 || n.Status != common2.NodeDisconnect.String() {
 		t.Fatalf("node %d status is %s", n.Id, n.Status)
 		t.FailNow()
 	}
@@ -353,7 +353,7 @@ func TestShowGroupShowShards(t *testing.T) {
 		if !g.Found || len(g.ByNode) != 3 {
 			t.FailNow()
 		}
-		if g.ShardCnt != master2.NShards/ 2 {
+		if g.ShardCnt != common2.NShards/ 2 {
 			t.Fatalf("shard cnt %d != 16", g.ShardCnt)
 			t.FailNow()
 		}
@@ -363,12 +363,12 @@ func TestShowGroupShowShards(t *testing.T) {
 	if err != common2.OK {
 		t.FailNow()
 	}
-	if len(shards) != master2.NShards {
+	if len(shards) != common2.NShards {
 		t.Fatalf("len of shrads not eq to 32")
 		t.FailNow()
 	}
 	for _, shard := range shards {
-		if shard.Status != master2.SERVING || (shard.Gid != 100 && shard.Gid != 200) {
+		if shard.Status != common2.SERVING || (shard.Gid != 100 && shard.Gid != 200) {
 			t.Fatalf("%v", shard)
 			t.FailNow()
 		}
@@ -406,7 +406,7 @@ func TestJoinLeave(t *testing.T) {
 		if !g.Found || len(g.ByNode) != 3 {
 			t.FailNow()
 		}
-		if g.ShardCnt != master2.NShards/ 2 {
+		if g.ShardCnt != common2.NShards/ 2 {
 			t.Fatalf("shard cnt %d != 16", g.ShardCnt)
 			t.FailNow()
 		}
@@ -431,7 +431,7 @@ func TestJoinLeave(t *testing.T) {
 		if !g.Found || len(g.ByNode) != 3 {
 			t.FailNow()
 		}
-		if g.ShardCnt != master2.NShards {
+		if g.ShardCnt != common2.NShards {
 			t.Fatalf("shard cnt != 32")
 			t.FailNow()
 		}
@@ -792,7 +792,7 @@ func TestRestart(t *testing.T) {
 		if !g.Found || len(g.ByNode) != 3 {
 			t.FailNow()
 		}
-		if g.ShardCnt != master2.NShards/ 2 {
+		if g.ShardCnt != common2.NShards/ 2 {
 			t.Fatalf("shard cnt %d != 16", g.ShardCnt)
 			t.FailNow()
 		}
@@ -868,7 +868,7 @@ func TestConsoleClient(t *testing.T) {
 }*/
 
 func TestGateWay(t *testing.T) {
-	args := &master2.ShowMasterArgs{}
+	args := &common2.ShowMasterArgs{}
 	data := utils2.MsgpEncode(args)
 	req, err := http.NewRequest("POST", "http://127.0.0.1:8000/", bytes.NewReader(data))
 	if err != nil {
@@ -894,7 +894,7 @@ func TestGateWay(t *testing.T) {
 		log.Fatal("failed to read response: ", err)
 	}
 
-	reply := &master2.ShowMasterReply{}
+	reply := &common2.ShowMasterReply{}
 	utils2.MsgpDecode(replyData, reply)
 
 	fmt.Printf("%+v", reply)

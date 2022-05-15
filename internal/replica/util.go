@@ -4,7 +4,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/Allen1211/mrkv/internal/master"
+	"github.com/Allen1211/mrkv/pkg/common"
 )
 
 func willTimeout(f func(), timeout time.Duration) bool {
@@ -22,7 +22,7 @@ func willTimeout(f func(), timeout time.Duration) bool {
 }
 
 
-func (kv *ShardKV) printLatestConfig(c master.ConfigV1)  {
+func (kv *ShardKV) printLatestConfig(c common.ConfigV1)  {
 	gid2Shards := make(map[int][]int)
 	for s, gid := range c.Shards {
 		if _, ok := gid2Shards[gid]; !ok {

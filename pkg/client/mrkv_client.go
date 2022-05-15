@@ -5,23 +5,22 @@ import (
 
 	"github.com/Allen1211/mrkv/internal/master"
 	"github.com/Allen1211/mrkv/internal/netw"
-	"github.com/Allen1211/mrkv/internal/replica"
 	"github.com/Allen1211/mrkv/pkg/common"
 )
 
 type API interface {
-	Get(key string) replica.GetReply
-	Put(key string, val []byte) replica.PutAppendReply
-	Append(key string, val []byte) replica.PutAppendReply
-	Delete(key string) replica.DeleteReply
+	Get(key string) common.GetReply
+	Put(key string, val []byte) common.PutAppendReply
+	Append(key string, val []byte) common.PutAppendReply
+	Delete(key string) common.DeleteReply
 
 	Join(gid int, nodes []int) common.Err
 	Leave(gid int) common.Err
 
-	ShowNodes(nodeIds []int)		([]master.ShowNodeRes, common.Err)
-	ShowGroups(gids []int)			([]master.ShowGroupRes, common.Err)
-	ShowShards(gids []int)			([]master.ShowShardRes, common.Err)
-	ShowMaster()	[]master.ShowMasterReply
+	ShowNodes(nodeIds []int)		([]common.ShowNodeRes, common.Err)
+	ShowGroups(gids []int)			([]common.ShowGroupRes, common.Err)
+	ShowShards(gids []int)			([]common.ShowShardRes, common.Err)
+	ShowMaster()	[]common.ShowMasterReply
 
 	TransferLeader(gid int, target int) common.Err
 }
@@ -48,19 +47,19 @@ func MakeMrKVClient(masters []string) *MrKVClient {
 	}
 }
 
-func (c *MrKVClient) Get(key string) replica.GetReply {
+func (c *MrKVClient) Get(key string) common.GetReply {
 	return c.kvc.Get(key)
 }
 
-func (c *MrKVClient) Put(key string, val []byte) replica.PutAppendReply {
+func (c *MrKVClient) Put(key string, val []byte) common.PutAppendReply {
 	return c.kvc.Put(key, val)
 }
 
-func (c *MrKVClient) Append(key string, val []byte) replica.PutAppendReply {
+func (c *MrKVClient) Append(key string, val []byte) common.PutAppendReply {
 	return c.kvc.Append(key, val)
 }
 
-func (c *MrKVClient) Delete(key string) replica.DeleteReply {
+func (c *MrKVClient) Delete(key string) common.DeleteReply {
 	return c.kvc.Delete(key)
 }
 
@@ -74,8 +73,8 @@ func (c *MrKVClient) Leave(gid int) common.Err {
 	return c.mc.Leave([]int{gid})
 }
 
-func (c *MrKVClient) ShowNodes(nodeIds []int) ([]master.ShowNodeRes, common.Err){
-	args := master.ShowArgs{
+func (c *MrKVClient) ShowNodes(nodeIds []int) ([]common.ShowNodeRes, common.Err){
+	args := common.ShowArgs{
 		GIDs: []int{},
 		NodeIds: []int{},
 		ShardIds: []int{},
@@ -87,8 +86,8 @@ func (c *MrKVClient) ShowNodes(nodeIds []int) ([]master.ShowNodeRes, common.Err)
 	return reply.Nodes, reply.Err
 }
 
-func (c *MrKVClient) ShowGroups(gids []int)	([]master.ShowGroupRes, common.Err) {
-	args := master.ShowArgs{
+func (c *MrKVClient) ShowGroups(gids []int)	([]common.ShowGroupRes, common.Err) {
+	args := common.ShowArgs{
 		GIDs: []int{},
 		NodeIds: []int{},
 		ShardIds: []int{},
@@ -100,8 +99,8 @@ func (c *MrKVClient) ShowGroups(gids []int)	([]master.ShowGroupRes, common.Err) 
 	return reply.Groups, reply.Err
 }
 
-func (c *MrKVClient) ShowShards(gids []int)	([]master.ShowShardRes, common.Err) {
-	args := master.ShowArgs{
+func (c *MrKVClient) ShowShards(gids []int)	([]common.ShowShardRes, common.Err) {
+	args := common.ShowArgs{
 		GIDs: []int{},
 		NodeIds: []int{},
 		ShardIds: []int{},
@@ -113,7 +112,7 @@ func (c *MrKVClient) ShowShards(gids []int)	([]master.ShowShardRes, common.Err) 
 	return reply.Shards, reply.Err
 }
 
-func (c *MrKVClient) ShowMaster() []master.ShowMasterReply {
+func (c *MrKVClient) ShowMaster() []common.ShowMasterReply {
 	return c.mc.ShowMaster()
 }
 

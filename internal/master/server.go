@@ -32,8 +32,8 @@ type ShardMaster struct {
 
 	nodes		map[int]*Node
 
-	configs     []ConfigV1 // indexed by config num
-	routeConfig ConfigV1
+	configs     []common.ConfigV1 // indexed by config num
+	routeConfig common.ConfigV1
 
 	opApplied   map[int]chan interface{}
 	ckMaxSeq    map[int64]int64
@@ -49,8 +49,8 @@ type ShardMaster struct {
 type Node struct {
 	Id       int
 	Addr     string
-	Groups   map[int]*GroupInfo
-	Status   NodeStatus
+	Groups   map[int]*common.GroupInfo
+	Status   common.NodeStatus
 	LastBeat time.Time
 }
 
@@ -110,36 +110,36 @@ func (sm *ShardMaster) applyer() {
 
 			switch wrap.Type {
 			case common.CmdTypeQuery:
-				op := OpQueryCmd{}
+				op := common.OpQueryCmd{}
 				utils.MsgpDecode(wrap.Body, &op)
 				reply, err = sm.executeQuery(&op.Args)
 			case common.CmdTypeShow:
-				op := OpShowCmd{}
+				op := common.OpShowCmd{}
 				utils.MsgpDecode(wrap.Body, &op)
 				reply, err = sm.executeShow(&op.Args)
 			case common.CmdTypeHeartbeat:
-				op := OpHeartbeatCmd{}
+				op := common.OpHeartbeatCmd{}
 				utils.MsgpDecode(wrap.Body, &op)
 				if sm.isDuplicateAndSet(op.Cid, op.Seq) {
 					break
 				}
 				reply, err = sm.executeHeartbeat(&op.Args)
 			case common.CmdTypeJoin:
-				op := OpJoinCmd{}
+				op := common.OpJoinCmd{}
 				utils.MsgpDecode(wrap.Body, &op)
 				if sm.isDuplicateAndSet(op.Cid, op.Seq) {
 					break
 				}
 				reply, err = sm.executeJoin(&op.Args)
 			case common.CmdTypeLeave:
-				op := OpLeaveCmd{}
+				op := common.OpLeaveCmd{}
 				utils.MsgpDecode(wrap.Body, &op)
 				if sm.isDuplicateAndSet(op.Cid, op.Seq) {
 					break
 				}
 				reply, err = sm.executeLeave(&op.Args)
 			case common.CmdTypeMove:
-				op := OpMoveCmd{}
+				op := common.OpMoveCmd{}
 				utils.MsgpDecode(wrap.Body, &op)
 				if sm.isDuplicateAndSet(op.Cid, op.Seq) {
 					break
@@ -176,14 +176,14 @@ func (sm *ShardMaster) applyer() {
 	}
 }
 
-func (sm *ShardMaster) raftStart(opType uint8, opBody []byte) (res interface{}, err string) {
+func (sm *ShardMaster) raftStart(opType uint8, opBody []byte) (res interface{}, err common.Err) {
 	wrap := utils.EncodeCmdWrap(opType, opBody)
 
 	var idx, term int
 	var isLeader bool
 
 	if idx, term, isLeader = sm.rf.Start(wrap); !isLeader {
-		return nil, ErrWrongLeader
+		return nil, common.ErrWrongLeader
 	}
 	sm.log.Debugf("ShardMaster %d call raft.start res: idx=%d term=%d isLeader=%v", sm.me, idx, term, isLeader)
 	//	fmt.Printf("op: %v", op)
@@ -200,32 +200,32 @@ func (sm *ShardMaster) raftStart(opType uint8, opBody []byte) (res interface{}, 
 	select {
 	case opRes := <-waitC:
 		// sm.log.Debugf("ShardMaster %d receive res %v from waiting channel %v", sm.me, opRes.res, opRes.idx)
-		return opRes, OK
+		return opRes, common.OK
 
 	case <-time.After(time.Second * 1):
 		sm.log.Warnf("ShardMaster %d op at idx %d has not commited after 1 secs", sm.me, idx)
-		return nil, ErrFailed
+		return nil, common.ErrFailed
 	}
 }
 
-func (sm *ShardMaster) Heartbeat(ctx context.Context, args *HeartbeatArgs, reply *HeartbeatReply) (e error) {
+func (sm *ShardMaster) Heartbeat(ctx context.Context, args *common.HeartbeatArgs, reply *common.HeartbeatReply) (e error) {
 	if sm.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
 
 	if _, isLeader := sm.rf.GetState(); !isLeader {
-		reply.Err = ErrWrongLeader
+		reply.Err = common.ErrWrongLeader
 		reply.WrongLeader = true
-		reply.Configs = map[int]ConfigV1{}
-		reply.Nodes = map[int]NodeInfo{}
+		reply.Configs = map[int]common.ConfigV1{}
+		reply.Nodes = map[int]common.NodeInfo{}
 		return
 	}
 
 	sm.log.Debugf("Received Heartbeat from node %d", args.NodeId)
 
-	op := OpHeartbeatCmd{
-		OpBase: OpBase{
-			Type: OpHeartbeat,
+	op := common.OpHeartbeatCmd{
+		OpBase: common.OpBase{
+			Type: common.OpHeartbeat,
 			Cid:  args.Cid,
 			Seq:  args.Seq,
 		},
@@ -234,14 +234,14 @@ func (sm *ShardMaster) Heartbeat(ctx context.Context, args *HeartbeatArgs, reply
 
 	res, err := sm.raftStart(common.CmdTypeHeartbeat, utils.MsgpEncode(&op))
 
-	if err != OK {
+	if err != common.OK {
 		reply.Err = common.Err(err)
-		reply.WrongLeader = err == ErrWrongLeader
-		reply.Configs = map[int]ConfigV1{}
-		reply.Nodes = map[int]NodeInfo{}
+		reply.WrongLeader = err == common.ErrWrongLeader
+		reply.Configs = map[int]common.ConfigV1{}
+		reply.Nodes = map[int]common.NodeInfo{}
 	} else {
-		reply.Err = OK
-		r, _ := res.(*HeartbeatReply)
+		reply.Err = common.OK
+		r, _ := res.(*common.HeartbeatReply)
 		if r != nil {
 			*reply = *r
 		} else {
@@ -253,14 +253,14 @@ func (sm *ShardMaster) Heartbeat(ctx context.Context, args *HeartbeatArgs, reply
 	return
 }
 
-func (sm *ShardMaster) Join(ctx context.Context, args *JoinArgs, reply *JoinReply) (e error)  {
+func (sm *ShardMaster) Join(ctx context.Context, args *common.JoinArgs, reply *common.JoinReply) (e error)  {
 	if sm.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
 
-	op := OpJoinCmd{
-		OpBase: OpBase{
-			Type: OpJoin,
+	op := common.OpJoinCmd{
+		OpBase: common.OpBase{
+			Type: common.OpJoin,
 			Cid:  args.Cid,
 			Seq:  args.Seq,
 		},
@@ -272,7 +272,7 @@ func (sm *ShardMaster) Join(ctx context.Context, args *JoinArgs, reply *JoinRepl
 		for _, nodeId := range nodeIds {
 			if _, ok := sm.nodes[nodeId]; !ok {
 				sm.log.Warnf("cannot join group %d to node %d, node not registered", gid, nodeId)
-				reply.Err = ErrNodeNotRegister
+				reply.Err = common.ErrNodeNotRegister
 				return
 			}
 		}
@@ -280,7 +280,7 @@ func (sm *ShardMaster) Join(ctx context.Context, args *JoinArgs, reply *JoinRepl
 
 	_, err := sm.raftStart(common.CmdTypeJoin, utils.MsgpEncode(&op))
 	reply.Err = common.Err(err)
-	reply.WrongLeader = err == ErrWrongLeader
+	reply.WrongLeader = err == common.ErrWrongLeader
 
 	sm.log.Infof("ShardMaster %d join command reply: %v", sm.me, *reply)
 	sm.printLatestConfig(true)
@@ -288,14 +288,14 @@ func (sm *ShardMaster) Join(ctx context.Context, args *JoinArgs, reply *JoinRepl
 	return
 }
 
-func (sm *ShardMaster) Leave(ctx context.Context, args *LeaveArgs, reply *LeaveReply) (e error) {
+func (sm *ShardMaster) Leave(ctx context.Context, args *common.LeaveArgs, reply *common.LeaveReply) (e error) {
 	if sm.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
 
-	op := OpLeaveCmd{
-		OpBase: OpBase{
-			Type: OpLeave,
+	op := common.OpLeaveCmd{
+		OpBase: common.OpBase{
+			Type: common.OpLeave,
 			Cid:  args.Cid,
 			Seq:  args.Seq,
 		},
@@ -304,12 +304,12 @@ func (sm *ShardMaster) Leave(ctx context.Context, args *LeaveArgs, reply *LeaveR
 	sm.log.Infof("ShardMaster %d receive leave command args: %v", sm.me, args)
 
 	res, err := sm.raftStart(common.CmdTypeLeave, utils.MsgpEncode(&op))
-	if err != OK {
+	if err != common.OK {
 		reply.Err = common.Err(err)
-		reply.WrongLeader = err == ErrWrongLeader
+		reply.WrongLeader = err == common.ErrWrongLeader
 	} else {
-		reply.Err = OK
-		r, _ := res.(*LeaveReply)
+		reply.Err = common.OK
+		r, _ := res.(*common.LeaveReply)
 		if r != nil {
 			*reply = *r
 		} else {
@@ -323,14 +323,14 @@ func (sm *ShardMaster) Leave(ctx context.Context, args *LeaveArgs, reply *LeaveR
 	return
 }
 
-func (sm *ShardMaster) Move(ctx context.Context, args *MoveArgs, reply *MoveReply) (e error)  {
+func (sm *ShardMaster) Move(ctx context.Context, args *common.MoveArgs, reply *common.MoveReply) (e error)  {
 	if sm.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
 
-	op := OpMoveCmd{
-		OpBase: OpBase{
-			Type: OpMove,
+	op := common.OpMoveCmd{
+		OpBase: common.OpBase{
+			Type: common.OpMove,
 			Cid:  args.Cid,
 			Seq:  args.Seq,
 		},
@@ -340,7 +340,7 @@ func (sm *ShardMaster) Move(ctx context.Context, args *MoveArgs, reply *MoveRepl
 
 	_, err := sm.raftStart(common.CmdTypeMove, utils.MsgpEncode(&op))
 	reply.Err = common.Err(err)
-	reply.WrongLeader = err == ErrWrongLeader
+	reply.WrongLeader = err == common.ErrWrongLeader
 
 	sm.log.Infof("ShardMaster %d move command reply: %v", sm.me, *reply)
 	sm.printLatestConfig(true)
@@ -348,14 +348,14 @@ func (sm *ShardMaster) Move(ctx context.Context, args *MoveArgs, reply *MoveRepl
 	return
 }
 
-func (sm *ShardMaster) Query(ctx context.Context, args *QueryArgs, reply *QueryReply) (e error) {
+func (sm *ShardMaster) Query(ctx context.Context, args *common.QueryArgs, reply *common.QueryReply) (e error) {
 	if sm.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
 
-	op := OpQueryCmd{
-		OpBase: OpBase{
-			Type: OpQuery,
+	op := common.OpQueryCmd{
+		OpBase: common.OpBase{
+			Type: common.OpQuery,
 			Cid:  args.Cid,
 			Seq:  args.Seq,
 		},
@@ -388,12 +388,12 @@ func (sm *ShardMaster) Query(ctx context.Context, args *QueryArgs, reply *QueryR
 	}
 
 	res, err := sm.raftStart(common.CmdTypeQuery, utils.MsgpEncode(&op))
-	if err != OK {
+	if err != common.OK {
 		reply.Err = common.Err(err)
-		reply.WrongLeader = err == ErrWrongLeader
+		reply.WrongLeader = err == common.ErrWrongLeader
 	} else {
-		reply.Err = OK
-		r, _ := res.(*QueryReply)
+		reply.Err = common.OK
+		r, _ := res.(*common.QueryReply)
 		reply.Config = r.Config
 	}
 	sm.log.Debugf("ShardMaster %d query command reply: %v", sm.me, *reply)
@@ -402,14 +402,14 @@ func (sm *ShardMaster) Query(ctx context.Context, args *QueryArgs, reply *QueryR
 	return
 }
 
-func (sm *ShardMaster) Show(ctx context.Context, args *ShowArgs, reply *ShowReply) (e error) {
+func (sm *ShardMaster) Show(ctx context.Context, args *common.ShowArgs, reply *common.ShowReply) (e error) {
 	if sm.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
 
-	op := OpShowCmd{
-		OpBase: OpBase{
-			Type: OpShow,
+	op := common.OpShowCmd{
+		OpBase: common.OpBase{
+			Type: common.OpShow,
 		},
 		Args: *args,
 	}
@@ -434,20 +434,20 @@ func (sm *ShardMaster) Show(ctx context.Context, args *ShowArgs, reply *ShowRepl
 		return nil
 	}
 	res, err := sm.raftStart(common.CmdTypeShow, utils.MsgpEncode(&op))
-	if err != OK {
+	if err != common.OK {
 		reply.Err = common.Err(err)
 	} else if res == nil {
 		reply.Err = common.ErrFailed
 	} else {
 		reply.Err = common.OK
-		r, _ := res.(*ShowReply)
+		r, _ := res.(*common.ShowReply)
 		*reply = *r
 	}
 	sm.log.Debugf("ShardMaster %d show command reply: %v", sm.me, *reply)
 	return
 }
 
-func (sm *ShardMaster) ShowMaster(ctx context.Context, args *ShowMasterArgs, reply *ShowMasterReply) (e error) {
+func (sm *ShardMaster) ShowMaster(ctx context.Context, args *common.ShowMasterArgs, reply *common.ShowMasterReply) (e error) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
@@ -467,7 +467,7 @@ func (sm *ShardMaster) ShowMaster(ctx context.Context, args *ShowMasterArgs, rep
 	return
 }
 
-func (sm *ShardMaster) readLatestConfig() (*ConfigV1, Err) {
+func (sm *ShardMaster) readLatestConfig() (*common.ConfigV1, common.Err) {
 
 	sm.mu.Unlock()
 	if ok, readIdx := sm.rf.ReadIndex(); ok {
@@ -477,31 +477,31 @@ func (sm *ShardMaster) readLatestConfig() (*ConfigV1, Err) {
 
 		sm.mu.Lock()
 
-		return &sm.configs[len(sm.configs)-1], OK
+		return &sm.configs[len(sm.configs)-1], common.OK
 	}
-	op := OpQueryCmd{
-		OpBase: OpBase{
-			Type: OpQuery,
+	op := common.OpQueryCmd{
+		OpBase: common.OpBase{
+			Type: common.OpQuery,
 		},
-		Args: QueryArgs{
+		Args: common.QueryArgs{
 			Num: -1,
 		},
 	}
 	res, err := sm.raftStart(common.CmdTypeQuery, utils.MsgpEncode(&op))
 
 	defer sm.mu.Lock()
-	if err != OK {
-		return nil, Err(err)
+	if err != common.OK {
+		return nil, common.Err(err)
 	} else {
-		r, _ := res.(*QueryReply)
-		return &r.Config, OK
+		r, _ := res.(*common.QueryReply)
+		return &r.Config, common.OK
 	}
 }
 
-func (sm *ShardMaster) executeHeartbeat(args *HeartbeatArgs) (reply *HeartbeatReply, err error) {
-	reply = new(HeartbeatReply)
+func (sm *ShardMaster) executeHeartbeat(args *common.HeartbeatArgs) (reply *common.HeartbeatReply, err error) {
+	reply = new(common.HeartbeatReply)
 
-	reply.Configs, reply.PrevConfigs ,reply.Nodes, reply.Groups = map[int]ConfigV1{}, map[int]ConfigV1{}, map[int]NodeInfo{}, map[int]GroupInfo{}
+	reply.Configs, reply.PrevConfigs ,reply.Nodes, reply.Groups = map[int]common.ConfigV1{}, map[int]common.ConfigV1{}, map[int]common.NodeInfo{}, map[int]common.GroupInfo{}
 
 	// handle node meta data change
 	var node *Node
@@ -520,10 +520,10 @@ func (sm *ShardMaster) executeHeartbeat(args *HeartbeatArgs) (reply *HeartbeatRe
 		// node.Groups = args.Groups
 
 		for gid, argGroup := range args.Groups {
-			var localGroup *GroupInfo
+			var localGroup *common.GroupInfo
 			if localGroup, ok = node.Groups[gid]; !ok {
-					if argGroup.Status != GroupRemoved {
-						node.Groups[gid] = &GroupInfo{
+					if argGroup.Status != common.GroupRemoved {
+						node.Groups[gid] = &common.GroupInfo{
 							Id: 		gid,
 							ConfNum: 	argGroup.ConfNum,
 							IsLeader:   argGroup.IsLeader,
@@ -545,21 +545,21 @@ func (sm *ShardMaster) executeHeartbeat(args *HeartbeatArgs) (reply *HeartbeatRe
 			// handle shard meta data change
 			outer:
 			switch localGroup.Status {
-			case GroupJoined:
-				if argGroup.Status != GroupJoined {
+			case common.GroupJoined:
+				if argGroup.Status != common.GroupJoined {
 					break
 				}
 				// => GroupServing : if shards are serving
 				for _, s := range argGroup.Shards {
-					if s.Gid == localGroup.Id && s.Status != SERVING {
+					if s.Gid == localGroup.Id && s.Status != common.SERVING {
 						break outer
 					}
 				}
-				localGroup.Status = GroupServing
+				localGroup.Status = common.GroupServing
 				sm.log.Infof("group %d in node %d status => GroupServing", localGroup.Id, node.Id)
-			case GroupServing:
-			case GroupLeaving:
-				if argGroup.Status != GroupLeaving {
+			case common.GroupServing:
+			case common.GroupLeaving:
+				if argGroup.Status != common.GroupLeaving {
 					break
 				}
 				if argGroup.ConfNum != localGroup.RemoteConfNum {
@@ -567,17 +567,17 @@ func (sm *ShardMaster) executeHeartbeat(args *HeartbeatArgs) (reply *HeartbeatRe
 				}
 				// => GroupRemoving : if shards are invalid
 				for _, s := range argGroup.Shards {
-					if s.ExOwner == localGroup.Id && s.Status != INVALID {
+					if s.ExOwner == localGroup.Id && s.Status != common.INVALID {
 						break outer
 					}
 				}
-				localGroup.Status = GroupRemoving
+				localGroup.Status = common.GroupRemoving
 				sm.log.Infof("group %d in node %d status => GroupRemoving", localGroup.Id, node.Id)
-			case GroupRemoving:
-				if argGroup.Status != GroupRemoving {
+			case common.GroupRemoving:
+				if argGroup.Status != common.GroupRemoving {
 					break
 				}
-				var ngs []ConfigNodeGroup
+				var ngs []common.ConfigNodeGroup
 				for i := len(sm.configs) - 2; i >= 0; i-- {
 					conf := sm.configs[i]
 					if ngs, ok = conf.Groups[gid]; ok {
@@ -589,16 +589,16 @@ func (sm *ShardMaster) executeHeartbeat(args *HeartbeatArgs) (reply *HeartbeatRe
 				}
 				for _, ng := range ngs {
 					if g, ok := sm.nodes[ng.NodeId].Groups[gid]; ok {
-						if g != nil && g.Status != GroupRemoving && g.Status != GroupRemoved {
+						if g != nil && g.Status != common.GroupRemoving && g.Status != common.GroupRemoved {
 							break outer
 						}
 					}
 				}
-				localGroup.Status = GroupRemoved
+				localGroup.Status = common.GroupRemoved
 				sm.log.Infof("group %d in node %d status => GroupRemoved", localGroup.Id, node.Id)
 
-			case GroupRemoved:
-				if argGroup.Status != GroupRemoved {
+			case common.GroupRemoved:
+				if argGroup.Status != common.GroupRemoved {
 					sm.log.Warnf("master group %d in node %d is removed but replica group is %d", gid, node.Id, argGroup.Status)
 				}
 
@@ -610,7 +610,7 @@ func (sm *ShardMaster) executeHeartbeat(args *HeartbeatArgs) (reply *HeartbeatRe
 							break outer
 						}
 					}
-					newRouteConfig := ConfigV1{
+					newRouteConfig := common.ConfigV1{
 						Num:    sm.routeConfig.Num + 1,
 						Groups: sm.deepCopyConfMap(sm.routeConfig),
 					}
@@ -625,13 +625,13 @@ func (sm *ShardMaster) executeHeartbeat(args *HeartbeatArgs) (reply *HeartbeatRe
 	}
 
 	// update node status
-	node.Status = NodeNormal
+	node.Status = common.NodeNormal
 	node.LastBeat = time.Now()
 
 	// read config for each group
 	for gid, group := range node.Groups {
 		requestNum := group.ConfNum + 1
-		if group.Status == GroupJoined {
+		if group.Status == common.GroupJoined {
 			requestNum--
 		}
 		if requestNum >= 0 && requestNum < len(sm.configs) {
@@ -648,7 +648,7 @@ func (sm *ShardMaster) executeHeartbeat(args *HeartbeatArgs) (reply *HeartbeatRe
 
 	// read nodes
 	for nodeId, node := range sm.nodes {
-		reply.Nodes[nodeId] = NodeInfo{
+		reply.Nodes[nodeId] = common.NodeInfo{
 			Id: nodeId,
 			Addr: node.Addr,
 		}
@@ -662,24 +662,24 @@ func (sm *ShardMaster) executeHeartbeat(args *HeartbeatArgs) (reply *HeartbeatRe
 	return
 }
 
-func (sm *ShardMaster) executeJoin(args *JoinArgs) (reply *JoinReply, err error) {
+func (sm *ShardMaster) executeJoin(args *common.JoinArgs) (reply *common.JoinReply, err error) {
 
 	latestConfig := sm.getLatestConfig()
 
 	// copy the groups map
-	groups := make(map[int][]ConfigNodeGroup)
+	groups := make(map[int][]common.ConfigNodeGroup)
 	for gid, servers := range latestConfig.Groups {
-		groups[gid] = make([]ConfigNodeGroup, len(servers))
+		groups[gid] = make([]common.ConfigNodeGroup, len(servers))
 		copy(groups[gid], servers)
 	}
 
 	// copy the shards
-	shards := [NShards]int{}
+	shards := [common.NShards]int{}
 	for i, v := range latestConfig.Shards {
 		shards[i] = v
 	}
 
-	newRouteConfig := ConfigV1{
+	newRouteConfig := common.ConfigV1{
 		Num: sm.routeConfig.Num + 1,
 	}
 
@@ -688,23 +688,23 @@ func (sm *ShardMaster) executeJoin(args *JoinArgs) (reply *JoinReply, err error)
 
 	// join
 	for gid, nodes := range args.Nodes {
-		cngs := make([]ConfigNodeGroup, 0)
+		cngs := make([]common.ConfigNodeGroup, 0)
 		for i, nodeId := range nodes {
 			if node, ok := sm.nodes[nodeId]; !ok {
-				return &JoinReply{
-					Err:         ErrNodeNotRegister,
+				return &common.JoinReply{
+					Err:         common.ErrNodeNotRegister,
 					WrongLeader: false,
 				}, nil
 			} else {
-				cngs = append(cngs, ConfigNodeGroup{
+				cngs = append(cngs, common.ConfigNodeGroup{
 					NodeId: nodeId,
 					Addr: node.Addr,
 					RaftPeer: i,
 				})
-				node.Groups[gid] = &GroupInfo{
+				node.Groups[gid] = &common.GroupInfo{
 					Id:            gid,
 					ConfNum:       latestConfig.Num + 1,
-					Status:        GroupJoined,
+					Status:        common.GroupJoined,
 					RemoteConfNum: latestConfig.Num + 1,
 				}
 			}
@@ -713,7 +713,7 @@ func (sm *ShardMaster) executeJoin(args *JoinArgs) (reply *JoinReply, err error)
 		newRouteConfig.Groups[gid] = cngs
 	}
 
-	sm.configs = append(sm.configs, ConfigV1{
+	sm.configs = append(sm.configs, common.ConfigV1{
 		Num:    latestConfig.Num + 1,
 		Groups: groups,
 		Shards: shards,
@@ -723,13 +723,13 @@ func (sm *ShardMaster) executeJoin(args *JoinArgs) (reply *JoinReply, err error)
 	// re-balance
 	sm.rebalanced()
 
-	return &JoinReply{
-		Err:         OK,
+	return &common.JoinReply{
+		Err:         common.OK,
 		WrongLeader: false,
 	}, nil
 }
 
-func (sm *ShardMaster) executeLeave(args *LeaveArgs) (reply *LeaveReply, err error) {
+func (sm *ShardMaster) executeLeave(args *common.LeaveArgs) (reply *common.LeaveReply, err error) {
 
 	latestConfig := sm.getLatestConfig()
 
@@ -742,10 +742,10 @@ func (sm *ShardMaster) executeLeave(args *LeaveArgs) (reply *LeaveReply, err err
 		ngs := latestConfig.Groups[gid]
 		for _, ng := range ngs {
 			groupInfo := sm.nodes[ng.NodeId].Groups[gid]
-			if groupInfo.Status != GroupServing {
+			if groupInfo.Status != common.GroupServing {
 				sm.log.Errorf("group %d in node %d is not serving, can't leave", gid, ng.NodeId)
-				return &LeaveReply{
-					Err:         ErrGroupNotServing,
+				return &common.LeaveReply{
+					Err:         common.ErrGroupNotServing,
 					WrongLeader: false,
 				}, nil
 			}
@@ -756,7 +756,7 @@ func (sm *ShardMaster) executeLeave(args *LeaveArgs) (reply *LeaveReply, err err
 		ngs := latestConfig.Groups[gid]
 		for _, ng := range ngs {
 			groupInfo := sm.nodes[ng.NodeId].Groups[gid]
-			groupInfo.Status = GroupLeaving
+			groupInfo.Status = common.GroupLeaving
 			groupInfo.RemoteConfNum = latestConfig.Num + 1
 			sm.log.Infof("group %d in node %d status => GroupLeaving", gid, ng.NodeId)
 
@@ -764,13 +764,13 @@ func (sm *ShardMaster) executeLeave(args *LeaveArgs) (reply *LeaveReply, err err
 	}
 
 	// copy and remove
-	groups := make(map[int][]ConfigNodeGroup)
+	groups := make(map[int][]common.ConfigNodeGroup)
 	for gid, servers := range latestConfig.Groups {
 		if _, ok := leaveGidMap[gid]; !ok {
 			groups[gid] = servers
 		}
 	}
-	shards := [NShards]int{}
+	shards := [common.NShards]int{}
 	for i := 0; i < len(shards); i++ {
 		if _, ok := leaveGidMap[latestConfig.Shards[i]]; !ok {
 			shards[i] = latestConfig.Shards[i]
@@ -778,7 +778,7 @@ func (sm *ShardMaster) executeLeave(args *LeaveArgs) (reply *LeaveReply, err err
 			shards[i] = 0
 		}
 	}
-	newConfig := ConfigV1{
+	newConfig := common.ConfigV1{
 		Num:    latestConfig.Num + 1,
 		Groups: groups,
 		Shards: shards,
@@ -788,24 +788,24 @@ func (sm *ShardMaster) executeLeave(args *LeaveArgs) (reply *LeaveReply, err err
 	// rebalanced (shards of left groups should move to present groups)
 	sm.rebalanced()
 
-	return &LeaveReply{
-		Err:         OK,
+	return &common.LeaveReply{
+		Err:         common.OK,
 		WrongLeader: false,
 	}, nil
 }
 
-func (sm *ShardMaster) executeMove(args *MoveArgs) (reply *MoveReply, err error) {
+func (sm *ShardMaster) executeMove(args *common.MoveArgs) (reply *common.MoveReply, err error) {
 
 	latestConfig := sm.getLatestConfig()
 
 	// copy the groups map
-	groups := make(map[int][]ConfigNodeGroup)
+	groups := make(map[int][]common.ConfigNodeGroup)
 	for gid, servers := range latestConfig.Groups {
 		groups[gid] = servers
 	}
 
 	// copy the shards
-	shards := [NShards]int{}
+	shards := [common.NShards]int{}
 	for i, v := range latestConfig.Shards {
 		shards[i] = v
 	}
@@ -815,7 +815,7 @@ func (sm *ShardMaster) executeMove(args *MoveArgs) (reply *MoveReply, err error)
 	toGid := args.GID
 	shards[args.Shard] = toGid
 
-	newConfig := ConfigV1{
+	newConfig := common.ConfigV1{
 		Num:    latestConfig.Num + 1,
 		Groups: groups,
 		Shards: shards,
@@ -824,31 +824,31 @@ func (sm *ShardMaster) executeMove(args *MoveArgs) (reply *MoveReply, err error)
 
 	sm.log.Infof("ShardMaster %d execute move: move shard %d from group %d to group %d", sm.me, args.Shard, fromGid, toGid)
 
-	return &MoveReply{
-		Err:         OK,
+	return &common.MoveReply{
+		Err:         common.OK,
 		WrongLeader: false,
 	}, nil
 }
 
-func (sm *ShardMaster) executeQuery(args *QueryArgs) (reply *QueryReply, err error) {
-	var config ConfigV1
+func (sm *ShardMaster) executeQuery(args *common.QueryArgs) (reply *common.QueryReply, err error) {
+	var config common.ConfigV1
 	if args.Num == -1 || args.Num >= len(sm.configs) {
 		config = sm.getLatestConfig()
 	} else {
 		config = sm.configs[args.Num]
 	}
-	return &QueryReply{
-		Err:         OK,
+	return &common.QueryReply{
+		Err:         common.OK,
 		WrongLeader: false,
 		Config:      config,
 	}, nil
 }
 
-func (sm *ShardMaster) executeShow(args *ShowArgs) (reply *ShowReply, err error) {
+func (sm *ShardMaster) executeShow(args *common.ShowArgs) (reply *common.ShowReply, err error) {
 
-	reply = new(ShowReply)
-	reply.Nodes, reply.Groups, reply.Shards = []ShowNodeRes{},[]ShowGroupRes{},[]ShowShardRes{}
-	reply.Err = OK
+	reply = new(common.ShowReply)
+	reply.Nodes, reply.Groups, reply.Shards = []common.ShowNodeRes{},[]common.ShowGroupRes{},[]common.ShowShardRes{}
+	reply.Err = common.OK
 
 	if args.Nodes {
 		nodeIds := make([]int, 0)
@@ -863,7 +863,7 @@ func (sm *ShardMaster) executeShow(args *ShowArgs) (reply *ShowReply, err error)
 		for _, nodeId := range nodeIds {
 			node, ok := sm.nodes[nodeId]
 			if !ok {
-				reply.Nodes = append(reply.Nodes, ShowNodeRes{
+				reply.Nodes = append(reply.Nodes, common.ShowNodeRes{
 					Found: false,
 					Id: nodeId,
 				})
@@ -875,7 +875,7 @@ func (sm *ShardMaster) executeShow(args *ShowArgs) (reply *ShowReply, err error)
 				gids = append(gids, gid)
 				isLeader[gid] = g.IsLeader
 			}
-			info := ShowNodeRes{
+			info := common.ShowNodeRes{
 				Found: true,
 				Id: nodeId,
 				Addr: node.Addr,
@@ -904,17 +904,17 @@ func (sm *ShardMaster) executeShow(args *ShowArgs) (reply *ShowReply, err error)
 		for _, gid := range gids {
 			nodeIds, ok := g2n[gid]
 			if !ok {
-				reply.Groups = append(reply.Groups, ShowGroupRes{
+				reply.Groups = append(reply.Groups, common.ShowGroupRes{
 					Found: false,
 					Id: gid,
 				})
 				continue
 			}
 			// ngs, ok := config.Groups[gid]
-			res := ShowGroupRes{
+			res := common.ShowGroupRes{
 				Found: true,
 				Id: gid,
-				ByNode: []ShowGroupInfoByNode{},
+				ByNode: []common.ShowGroupInfoByNode{},
 			}
 			latestConfNode, latestConfNum := -1, 0
 			for _, nodeId := range nodeIds {
@@ -926,7 +926,7 @@ func (sm *ShardMaster) executeShow(args *ShowArgs) (reply *ShowReply, err error)
 				if !ok {
 					continue
 				}
-				res.ByNode = append(res.ByNode, ShowGroupInfoByNode{
+				res.ByNode = append(res.ByNode, common.ShowGroupInfoByNode{
 					Id: 	 nodeId,
 					Addr:   n.Addr,
 					Peer:   g.Peer,
@@ -944,7 +944,7 @@ func (sm *ShardMaster) executeShow(args *ShowArgs) (reply *ShowReply, err error)
 			if latestConfNode != -1 {
 				g := sm.nodes[latestConfNode].Groups[gid]
 				for _, shard := range g.Shards {
-					if shard.Status == SERVING || shard.Status == PULLING || shard.Status == WAITING {
+					if shard.Status == common.SERVING || shard.Status == common.PULLING || shard.Status == common.WAITING {
 						res.ShardCnt++
 					}
 				}
@@ -957,7 +957,7 @@ func (sm *ShardMaster) executeShow(args *ShowArgs) (reply *ShowReply, err error)
 		gids := args.GIDs
 		conf := sm.getLatestConfig()
 		for _, gid := range gids {
-			var latestConfGroup *GroupInfo
+			var latestConfGroup *common.GroupInfo
 			latestConfNum := 0
 			ngs := conf.Groups[gid]
 			for _, ng := range ngs {
@@ -976,8 +976,8 @@ func (sm *ShardMaster) executeShow(args *ShowArgs) (reply *ShowReply, err error)
 			}
 			shards := latestConfGroup.Shards
 			for _, shard := range shards {
-				if shard.Status != INVALID {
-					reply.Shards = append(reply.Shards, ShowShardRes{
+				if shard.Status != common.INVALID {
+					reply.Shards = append(reply.Shards, common.ShowShardRes{
 						Id: shard.Id,
 						Gid: gid,
 						Status: shard.Status,
@@ -1036,8 +1036,8 @@ func (sm *ShardMaster) rebalanced() {
 	sm.log.Debugf("ShardMaster %d rebalanced: gidsOrderByNumShards: %v", sm.me, gidsOrderByNumShards)
 
 	numGroups := len(latestConfig.Groups)
-	avg := NShards / numGroups
-	numPlusOne := NShards % numGroups
+	avg := common.NShards / numGroups
+	numPlusOne := common.NShards % numGroups
 
 	for i := len(gidsOrderByNumShards) - 1; i >= 0; i-- {
 		fromGid := gidsOrderByNumShards[i]
@@ -1106,8 +1106,8 @@ func (sm *ShardMaster) nodeStatusUpdater() {
 			// }
 			sm.mu.Lock()
 			for _, node := range sm.nodes {
-				if node.Status == NodeNormal && time.Since(node.LastBeat) >= time.Second * 3 {
-					node.Status = NodeDisconnect
+				if node.Status == common.NodeNormal && time.Since(node.LastBeat) >= time.Second * 3 {
+					node.Status = common.NodeDisconnect
 					sm.log.Infof("Node %d is disconnected", node.Id)
 				}
 			}
@@ -1130,7 +1130,7 @@ func (sm *ShardMaster) leaderBalancer() {
 			leaderCnt := map[int]int{}
 			minCnt, maxCnt := 2<<31-1, -1
 			for _, node := range sm.nodes {
-				if node.Status != NodeNormal {
+				if node.Status != common.NodeNormal {
 					continue
 				}
 				leaderCnt[node.Id] = 0
@@ -1150,13 +1150,13 @@ func (sm *ShardMaster) leaderBalancer() {
 			}
 			if maxCnt - minCnt >= 2 {
 
-				leaderGroup :=  map[int][]*GroupInfo{}
+				leaderGroup :=  map[int][]*common.GroupInfo{}
 				for nodeId, cnt := range leaderCnt {
 					if cnt == maxCnt {
 						for _, g := range sm.nodes[nodeId].Groups {
 							if g.IsLeader {
 								if leaderGroup[nodeId] == nil {
-									leaderGroup[nodeId] = make([]*GroupInfo, 0)
+									leaderGroup[nodeId] = make([]*common.GroupInfo, 0)
 								}
 								leaderGroup[nodeId] = append(leaderGroup[nodeId], g)
 							}
@@ -1240,8 +1240,8 @@ func StartServer(conf etc.MasterConf) *ShardMaster {
 		return nil
 	}
 
-	sm.configs = make([]ConfigV1, 1)
-	sm.configs[0].Groups = map[int][]ConfigNodeGroup{}
+	sm.configs = make([]common.ConfigV1, 1)
+	sm.configs[0].Groups = map[int][]common.ConfigNodeGroup{}
 	sm.routeConfig = sm.configs[0]
 
 	sm.nodes = map[int]*Node{}

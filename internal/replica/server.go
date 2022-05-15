@@ -10,7 +10,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/Allen1211/mrkv/internal/master"
 	"github.com/Allen1211/mrkv/internal/netw"
 	"github.com/Allen1211/mrkv/internal/raft"
 	"github.com/Allen1211/mrkv/pkg/common"
@@ -40,8 +39,8 @@ type ShardKV struct {
 
 	store      Store
 	shardDB    map[int]*Shard
-	currConfig master.ConfigV1
-	prevConfig master.ConfigV1
+	currConfig common.ConfigV1
+	prevConfig common.ConfigV1
 
 	KilledC chan int
 	exitedC chan string
@@ -60,7 +59,7 @@ func (kv *ShardKV) Me() int {
 	return kv.me
 }
 
-func (kv *ShardKV) SetCurrConfig(config master.ConfigV1)  {
+func (kv *ShardKV) SetCurrConfig(config common.ConfigV1)  {
 	buf := new(bytes.Buffer)
 	if err := labgob.NewEncoder(buf).Encode(config); err != nil {
 		kv.log.Errorln(err)
@@ -72,14 +71,14 @@ func (kv *ShardKV) SetCurrConfig(config master.ConfigV1)  {
 
 }
 
-func (kv *ShardKV) GetCurrConfig() master.ConfigV1 {
+func (kv *ShardKV) GetCurrConfig() common.ConfigV1 {
 	kv.mu.RLock()
 	res := kv.currConfig
 	kv.mu.RUnlock()
 	return res
 }
 
-func (kv *ShardKV) SetPrevConfig(config master.ConfigV1) {
+func (kv *ShardKV) SetPrevConfig(config common.ConfigV1) {
 	buf := new(bytes.Buffer)
 	if err := labgob.NewEncoder(buf).Encode(config); err != nil {
 		kv.log.Errorln(err)
@@ -121,7 +120,7 @@ func (kv *ShardKV) Clear() {
 	kv.store.DeleteFile()
 }
 
-func (kv *ShardKV) GetGroupInfo() *master.GroupInfo {
+func (kv *ShardKV) GetGroupInfo() *common.GroupInfo {
 
 	kv.mu.RLock()
 	defer kv.mu.RUnlock()
@@ -134,9 +133,9 @@ func (kv *ShardKV) GetGroupInfo() *master.GroupInfo {
 
 	sizeOfGroup = kv.store.FileSize()
 
-	shards := make(map[int]master.ShardInfo)
+	shards := make(map[int]common.ShardInfo)
 	for id, shard := range kv.shardDB {
-		shards[id] = master.ShardInfo{
+		shards[id] = common.ShardInfo{
 			Id: 	id,
 			Gid: 	conf.Shards[id],
 			Status: shard.Status,
@@ -152,7 +151,7 @@ func (kv *ShardKV) GetGroupInfo() *master.GroupInfo {
 	// 	sizeOfGroup += size
 	// }
 
-	res := &master.GroupInfo{
+	res := &common.GroupInfo{
 		Id: 		kv.gid,
 		IsLeader:   isLeader,
 		ConfNum:    conf.Num,
@@ -187,11 +186,11 @@ func (kv *ShardKV) RecoverFromStore() (err error) {
 		}
 	}
 
-	for i := 0; i < master.NShards; i++ {
+	for i := 0; i < common.NShards; i++ {
 		kv.shardDB[i] = &Shard{
 			Idx:     i,
 			ExOwner: 0,
-			Status:  master.INVALID,
+			Status:  common.INVALID,
 			Store:   kv.store,
 		}
 		if err := kv.shardDB[i].LoadFromStore(); err != nil {
@@ -203,7 +202,7 @@ func (kv *ShardKV) RecoverFromStore() (err error) {
 }
 
 
-func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) (e error) {
+func (kv *ShardKV) Get(args *common.GetArgs, reply *common.GetReply) (e error) {
 
 	cmd := KVCmd{
 		CmdBase: CmdBase{
@@ -211,7 +210,7 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) (e error) {
 			Seq: args.Seq,
 		},
 		Op: Op{
-			Type: OpGet,
+			Type: common.OpGet,
 			Key:  args.Key,
 		},
 	}
@@ -241,14 +240,14 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) (e error) {
 	} else {
 		reply.Err = res.GetErr()
 		reply.Value = res.(*KVCmdApplyRes).val
-		kv.log.Infof("KVServer %d finished GET, key=%s, shard=%d, val=%s",kv.me, args.Key, master.Key2shard(args.Key), reply.Value)
+		kv.log.Infof("KVServer %d finished GET, key=%s, shard=%d, val=%s",kv.me, args.Key, common.Key2shard(args.Key), reply.Value)
 	}
 	reply.Peer, reply.GID = kv.me, kv.gid
 
 	return
 }
 
-func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) (e error) {
+func (kv *ShardKV) PutAppend(args *common.PutAppendArgs, reply *common.PutAppendReply) (e error) {
 
 	cmd := KVCmd{
 		CmdBase: CmdBase{
@@ -276,14 +275,14 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) (e erro
 		reply.Err = err
 	} else {
 		reply.Err = res.GetErr()
-		kv.log.Infof("KVServer %d finished PUTAPPEND, key=%s, shard=%d, val=%s",kv.me, args.Key, master.Key2shard(args.Key), args.Value)
+		kv.log.Infof("KVServer %d finished PUTAPPEND, key=%s, shard=%d, val=%s",kv.me, args.Key, common.Key2shard(args.Key), args.Value)
 	}
 	reply.Peer, reply.GID = kv.me, kv.gid
 
 	return
 }
 
-func (kv *ShardKV) Delete(args *DeleteArgs, reply *DeleteReply) (e error) {
+func (kv *ShardKV) Delete(args *common.DeleteArgs, reply *common.DeleteReply) (e error) {
 
 	cmd := KVCmd{
 		CmdBase: CmdBase{
@@ -291,7 +290,7 @@ func (kv *ShardKV) Delete(args *DeleteArgs, reply *DeleteReply) (e error) {
 			Seq: args.Seq,
 		},
 		Op: Op{
-			Type: OpDelete,
+			Type: common.OpDelete,
 			Key:  args.Key,
 		},
 	}
@@ -310,14 +309,14 @@ func (kv *ShardKV) Delete(args *DeleteArgs, reply *DeleteReply) (e error) {
 		reply.Err = err
 	} else {
 		reply.Err = res.GetErr()
-		kv.log.Infof("KVServer %d finished DELETE, key=%s, shard=%d",kv.me, args.Key, master.Key2shard(args.Key))
+		kv.log.Infof("KVServer %d finished DELETE, key=%s, shard=%d",kv.me, args.Key, common.Key2shard(args.Key))
 	}
 	reply.Peer, reply.GID = kv.me, kv.gid
 
 	return
 }
 
-func (kv *ShardKV) PullShard(args *PullShardArgs, reply *PullShardReply) (e error) {
+func (kv *ShardKV) PullShard(args *common.PullShardArgs, reply *common.PullShardReply) (e error) {
 
 	if _, isLeader := kv.rf.GetState(); !isLeader {
 		reply.Err = common.ErrWrongLeader
@@ -347,7 +346,7 @@ func (kv *ShardKV) PullShard(args *PullShardArgs, reply *PullShardReply) (e erro
 	return
 }
 
-func (kv *ShardKV) EraseShard(args *EraseShardArgs, reply *EraseShardReply) (e error) {
+func (kv *ShardKV) EraseShard(args *common.EraseShardArgs, reply *common.EraseShardReply) (e error) {
 	if _, isLeader := kv.rf.GetState(); !isLeader {
 		reply.Err = common.ErrWrongLeader
 		return
@@ -407,11 +406,11 @@ func (kv *ShardKV) checkShardInCharge(key string) bool {
 	kv.mu.RLock()
 	defer kv.mu.RUnlock()
 
-	shardId := master.Key2shard(key)
+	shardId := common.Key2shard(key)
 	if kv.currConfig.Shards[shardId] != kv.gid {
 		return false
 	}
-	if shard, ok := kv.shardDB[shardId]; !ok || !(shard.Status == master.SERVING || shard.Status == master.WAITING) {
+	if shard, ok := kv.shardDB[shardId]; !ok || !(shard.Status == common.SERVING || shard.Status == common.WAITING) {
 		return false
 	}
 	return true
@@ -490,7 +489,7 @@ func (kv *ShardKV) waitAppliedTo(target int) {
 func (kv *ShardKV) isDuplicated(key string, cid, seq int64) bool {
 	kv.mu.RLock()
 	defer kv.mu.RUnlock()
-	shardId := master.Key2shard(key)
+	shardId := common.Key2shard(key)
 	shard := kv.shardDB[shardId]
 	return shard.IfDuplicateAndSet(cid, seq, false)
 }
@@ -551,10 +550,10 @@ func StartServer(raftDataDir, logFileName string, logFileCap uint64 ,me int, pee
 
 	kv.shardDB = make(map[int]*Shard)
 
-	kv.currConfig = master.ConfigV1{
+	kv.currConfig = common.ConfigV1{
 		Num: 0,
-		Shards: [master.NShards]int{},
-		Groups: map[int][]master.ConfigNodeGroup{},
+		Shards: [common.NShards]int{},
+		Groups: map[int][]common.ConfigNodeGroup{},
 	}
 
 	if err := kv.RecoverFromStore(); err != nil {

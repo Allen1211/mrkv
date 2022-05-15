@@ -7,7 +7,6 @@ import (
 
 	"github.com/Allen1211/mrkv/internal/netw"
 	"github.com/Allen1211/mrkv/internal/raft"
-	"github.com/Allen1211/mrkv/internal/replica"
 	"github.com/Allen1211/mrkv/pkg/common"
 )
 
@@ -64,7 +63,7 @@ func (n *Node) route(gid, peer int) int {
 
 /* API of Replica */
 
-func (n *Node) Get(ctx context.Context, args *replica.GetArgs, reply *replica.GetReply) (e error) {
+func (n *Node) Get(ctx context.Context, args *common.GetArgs, reply *common.GetReply) (e error) {
 	if n.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
@@ -79,7 +78,7 @@ func (n *Node) Get(ctx context.Context, args *replica.GetArgs, reply *replica.Ge
 	}
 }
 
-func (n *Node) PutAppend(ctx context.Context, args *replica.PutAppendArgs, reply *replica.PutAppendReply) (e error) {
+func (n *Node) PutAppend(ctx context.Context, args *common.PutAppendArgs, reply *common.PutAppendReply) (e error) {
 	if n.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
@@ -93,7 +92,7 @@ func (n *Node) PutAppend(ctx context.Context, args *replica.PutAppendArgs, reply
 	}
 }
 
-func (n *Node) Delete(ctx context.Context, args *replica.DeleteArgs, reply *replica.DeleteReply) (e error) {
+func (n *Node) Delete(ctx context.Context, args *common.DeleteArgs, reply *common.DeleteReply) (e error) {
 	if n.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
@@ -108,7 +107,7 @@ func (n *Node) Delete(ctx context.Context, args *replica.DeleteArgs, reply *repl
 }
 
 
-func (n *Node) PullShard(ctx context.Context, args *replica.PullShardArgs, reply *replica.PullShardReply) (e error) {
+func (n *Node) PullShard(ctx context.Context, args *common.PullShardArgs, reply *common.PullShardReply) (e error) {
 	if n.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}
@@ -121,7 +120,7 @@ func (n *Node) PullShard(ctx context.Context, args *replica.PullShardArgs, reply
 	}
 }
 
-func (n *Node) EraseShard(ctx context.Context, args *replica.EraseShardArgs, reply *replica.EraseShardReply) (e error) {
+func (n *Node) EraseShard(ctx context.Context, args *common.EraseShardArgs, reply *common.EraseShardReply) (e error) {
 	if n.Killed() {
 		return errors.New(string(common.ErrNodeClosed))
 	}

@@ -12,7 +12,6 @@ import (
 	"github.com/Allen1211/mrkv/internal/master"
 	"github.com/Allen1211/mrkv/internal/netw"
 	"github.com/Allen1211/mrkv/internal/raft"
-	"github.com/Allen1211/mrkv/internal/replica"
 	"github.com/Allen1211/mrkv/pkg/common"
 )
 
@@ -25,7 +24,7 @@ func nrand() int64 {
 
 type KvClient struct {
 	sm       *master.Clerk
-	config   master.ConfigV1
+	config   common.ConfigV1
 	make_end func(string) *netw.ClientEnd
 
 	id      int64
@@ -76,14 +75,14 @@ func (ck *KvClient) getCallName(api string, nodeId int) string {
 	return fmt.Sprintf("Node-%d.%s", nodeId, api)
 }
 
-func (ck *KvClient) Get(key string) replica.GetReply {
-	var args replica.GetArgs
+func (ck *KvClient) Get(key string) common.GetReply {
+	var args common.GetArgs
 	args.Key = key
 	args.Seq = ck.nextSeq()
 	args.Cid = ck.id
 	for {
 		args.ConfNum = ck.config.Num
-		shard := master.Key2shard(key)
+		shard := common.Key2shard(key)
 		gid := ck.config.Shards[shard]
 		args.Gid = gid
 		if servers, ok := ck.config.Groups[gid]; ok {
@@ -93,7 +92,7 @@ func (ck *KvClient) Get(key string) replica.GetReply {
 					continue
 				}
 				srv := ck.getEnd(servers[ck.rrIdx].NodeId, servers[ck.rrIdx].Addr)
-				var reply replica.GetReply
+				var reply common.GetReply
 				if ok := srv.Call(netw.ApiGet, &args, &reply); !ok {
 					// fmt.Printf("Client %d Fail to Send RPC to server %d\n", ck.id, ck.rrIdx)
 					continue
@@ -117,8 +116,8 @@ func (ck *KvClient) Get(key string) replica.GetReply {
 	}
 }
 
-func (ck *KvClient) PutAppend(key string, value []byte, op string) replica.PutAppendReply {
-	var args replica.PutAppendArgs
+func (ck *KvClient) PutAppend(key string, value []byte, op string) common.PutAppendReply {
+	var args common.PutAppendArgs
 	args.Key = key
 	args.Value = value
 	args.Op = strings.ToUpper(op)
@@ -126,7 +125,7 @@ func (ck *KvClient) PutAppend(key string, value []byte, op string) replica.PutAp
 	args.Cid = ck.id
 	for {
 		args.ConfNum = ck.config.Num
-		shard := master.Key2shard(key)
+		shard := common.Key2shard(key)
 		gid := ck.config.Shards[shard]
 		args.Gid = gid
 
@@ -134,7 +133,7 @@ func (ck *KvClient) PutAppend(key string, value []byte, op string) replica.PutAp
 			i := ck.GetLeader(shard)
 			for j := 0; j < len(servers); j++ {
 				srv := ck.getEnd(servers[i].NodeId, servers[i].Addr)
-				var reply replica.PutAppendReply
+				var reply common.PutAppendReply
 				if ok := srv.Call(netw.ApiPutAppend, &args, &reply); !ok {
 					// fmt.Printf("Client %d Fail to Send RPC to server %d\n", ck.id, i)
 					i = (i + 1) % len(servers)
@@ -164,21 +163,21 @@ func (ck *KvClient) PutAppend(key string, value []byte, op string) replica.PutAp
 	}
 }
 
-func (ck *KvClient) Put(key string, value []byte) replica.PutAppendReply {
+func (ck *KvClient) Put(key string, value []byte) common.PutAppendReply {
 	return ck.PutAppend(key, value, "Put")
 }
-func (ck *KvClient) Append(key string, value []byte) replica.PutAppendReply {
+func (ck *KvClient) Append(key string, value []byte) common.PutAppendReply {
 	return ck.PutAppend(key, value, "Append")
 }
 
-func (ck *KvClient) Delete(key string) replica.DeleteReply {
-	var args replica.DeleteArgs
+func (ck *KvClient) Delete(key string) common.DeleteReply {
+	var args common.DeleteArgs
 	args.Key = key
 	args.Seq = ck.nextSeq()
 	args.Cid = ck.id
 	for {
 		args.ConfNum = ck.config.Num
-		shard := master.Key2shard(key)
+		shard := common.Key2shard(key)
 		gid := ck.config.Shards[shard]
 		args.Gid = gid
 
@@ -186,7 +185,7 @@ func (ck *KvClient) Delete(key string) replica.DeleteReply {
 			i := ck.GetLeader(shard)
 			for j := 0; j < len(servers); j++ {
 				srv := ck.getEnd(servers[i].NodeId, servers[i].Addr)
-				var reply replica.DeleteReply
+				var reply common.DeleteReply
 				if ok := srv.Call(netw.ApiDelete, &args, &reply); !ok {
 					// fmt.Printf("Client %d Fail to Send RPC to server %d\n", ck.id, i)
 					i = (i + 1) % len(servers)

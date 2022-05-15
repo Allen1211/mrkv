@@ -1,8 +1,4 @@
-package replica
-
-import (
-	"github.com/Allen1211/mrkv/pkg/common"
-)
+package common
 
 //
 // Sharded key/value server.
@@ -34,7 +30,7 @@ const (
 	CmdStopWaiting  = "STOP WAITING SHARD"
 )
 
-type BaseArgs struct {
+type BaseArgsN struct {
 	Cid 	int64
 	Seq 	int64
 	ConfNum int
@@ -49,7 +45,7 @@ type FromReply struct {
 
 // Put or Append
 type PutAppendArgs struct {
-	BaseArgs
+	BaseArgsN
 
 	Key   string
 	Value []byte
@@ -58,48 +54,48 @@ type PutAppendArgs struct {
 
 type PutAppendReply struct {
 	FromReply
-	Err common.Err
+	Err Err
 }
 
 type GetArgs struct {
-	BaseArgs
+	BaseArgsN
 	Key string
 }
 
 type GetReply struct {
 	FromReply
-	Err   common.Err
+	Err   Err
 	Value []byte
 }
 
 type DeleteArgs struct {
-	BaseArgs
+	BaseArgsN
 	Key string
 }
 
 type DeleteReply struct {
 	FromReply
-	Err common.Err
+	Err Err
 }
 
 type PullShardArgs struct {
-	BaseArgs
+	BaseArgsN
 	Shards  []int
 }
 
 
 type PullShardReply struct {
-	Err     common.Err
+	Err     Err
 	ConfNum int
 	Shards  map[int][]byte
 }
 
 type EraseShardArgs struct {
-	BaseArgs
+	BaseArgsN
 	Shards  []int
 }
 
 type EraseShardReply struct {
-	Err     common.Err
+	Err     Err
 	ConfNum int
 }

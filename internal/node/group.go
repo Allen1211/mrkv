@@ -1,20 +1,20 @@
 package node
 
 import (
-	"github.com/Allen1211/mrkv/internal/master"
 	"github.com/Allen1211/mrkv/internal/replica"
+	"github.com/Allen1211/mrkv/pkg/common"
 )
 
 type Group struct {
 	Id        int
-	Status    master.GroupStatus
+	Status    common.GroupStatus
 	Peer      int
 	RaftPeers int
 	Size      int64
 	replica   *replica.ShardKV
 }
 
-func MakeGroup(id, peer, raftPeers int, status master.GroupStatus, replica *replica.ShardKV) *Group {
+func MakeGroup(id, peer, raftPeers int, status common.GroupStatus, replica *replica.ShardKV) *Group {
 	return &Group{
 		Id: id,
 		Peer: peer,
@@ -28,9 +28,9 @@ func (g *Group) ConfNum() int {
 	return g.replica.GetCurrConfig().Num
 }
 
-func (g *Group) GetGroupInfo() *master.GroupInfo {
+func (g *Group) GetGroupInfo() *common.GroupInfo {
 	if g.replica == nil {
-		return &master.GroupInfo{
+		return &common.GroupInfo{
 			Id: g.Id,
 			Status: g.Status,
 		}
@@ -41,7 +41,7 @@ func (g *Group) GetGroupInfo() *master.GroupInfo {
 	}
 }
 
-func (g *Group) UpdateConfig(conf master.ConfigV1)  {
+func (g *Group) UpdateConfig(conf common.ConfigV1)  {
 	if g.replica != nil {
 		g.replica.UpdateConfig(conf)
 	}
@@ -54,6 +54,6 @@ func (g *Group) Shutdown() {
 		g.replica.Clear()
 		g.replica = nil
 	}
-	g.Status = master.GroupRemoved
+	g.Status = common.GroupRemoved
 
 }

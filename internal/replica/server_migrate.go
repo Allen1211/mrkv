@@ -7,7 +7,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/Allen1211/mrkv/internal/master"
 	"github.com/Allen1211/mrkv/internal/netw"
 	"github.com/Allen1211/mrkv/pkg/common"
 	"github.com/Allen1211/mrkv/pkg/common/utils"
@@ -22,14 +21,14 @@ const (
 
 func (kv *ShardKV) canPullConfig() bool {
 	for _, shard := range kv.shardDB {
-		if !(shard.Status == master.SERVING || shard.Status == master.INVALID) {
+		if !(shard.Status == common.SERVING || shard.Status == common.INVALID) {
 			return false
 		}
 	}
 	return true
 }
 
-func (kv *ShardKV) InitConfig(prevConfig, currConfig master.ConfigV1)  {
+func (kv *ShardKV) InitConfig(prevConfig, currConfig common.ConfigV1)  {
 	kv.log.Infof("init config, Num=%d; prevConfig: %v, currConfig %v", currConfig.Num, prevConfig, currConfig)
 
 	kv.SetPrevConfig(prevConfig)
@@ -45,16 +44,16 @@ func (kv *ShardKV) InitConfig(prevConfig, currConfig master.ConfigV1)  {
 			kv.log.Warnf("InitConfig: shard %d is already owned but this group is newly join", shardId)
 		}
 		if prevConfig.Num == 0 || prevConfig.Shards[shardId] == 0 {
-			kv.shardDB[shardId] = MakeShard(shardId, master.SERVING, 0, kv.store)
+			kv.shardDB[shardId] = MakeShard(shardId, common.SERVING, 0, kv.store)
 		} else {
 			var shard *Shard
 			var ok bool
 			if shard, ok = kv.shardDB[shardId]; !ok {
-				shard = MakeShard(shardId, master.INVALID, 0, kv.store)
+				shard = MakeShard(shardId, common.INVALID, 0, kv.store)
 				kv.shardDB[shardId] = shard
 			}
 			shard.SetExOwner(prevConfig.Shards[shardId])
-			shard.SetStatus(master.PULLING)
+			shard.SetStatus(common.PULLING)
 			kv.log.Infof("KVServer %d gain shard %d, now status is %v, exOwner is %d",
 				kv.me, shardId, shard.Status, shard.ExOwner)
 		}
@@ -72,7 +71,7 @@ func (kv *ShardKV) InitConfig(prevConfig, currConfig master.ConfigV1)  {
 	kv.printLatestConfig(kv.currConfig)
 }
 
-func (kv *ShardKV) UpdateConfig(config master.ConfigV1)  {
+func (kv *ShardKV) UpdateConfig(config common.ConfigV1)  {
 	kv.mu.RLock()
 	if !kv.canPullConfig() {
 		kv.mu.RUnlock()
@@ -107,7 +106,7 @@ func (kv *ShardKV) shardPuller() {
 
 			kv.mu.RLock()
 
-			shards := kv.getShards(master.PULLING)
+			shards := kv.getShards(common.PULLING)
 			if len(shards) == 0 {
 				kv.mu.RUnlock()
 				continue
@@ -115,7 +114,7 @@ func (kv *ShardKV) shardPuller() {
 
 			shardsByExOwner := make(map[int][]int)
 			for _, shard := range shards {
-				if shard.Status != master.PULLING {
+				if shard.Status != common.PULLING {
 					continue
 				}
 				if _, ok := shardsByExOwner[shard.ExOwner]; !ok {
@@ -134,14 +133,14 @@ func (kv *ShardKV) shardPuller() {
 			for gid, shards := range shardsByExOwner {
 				go func(shardsToPull []int, confNum int, groupId int) {
 					defer wg.Done()
-					args := PullShardArgs{
-						BaseArgs: BaseArgs{
+					args := common.PullShardArgs{
+						BaseArgsN: common.BaseArgsN {
 							ConfNum: confNum,
 							Gid: groupId,
 						},
 						Shards: shardsToPull,
 					}
-					reply := PullShardReply{}
+					reply := common.PullShardReply{}
 
 					nodesOfGroup, ok := kv.prevConfig.Groups[groupId]
 					if !ok {
@@ -196,7 +195,7 @@ func (kv *ShardKV) shardEraser() {
 			}
 			kv.mu.RLock()
 
-			shards := kv.getShards(master.WAITING)
+			shards := kv.getShards(common.WAITING)
 			if len(shards) == 0 {
 				kv.mu.RUnlock()
 				continue
@@ -204,7 +203,7 @@ func (kv *ShardKV) shardEraser() {
 
 			shardsByExOwner := make(map[int][]int)
 			for _, shard := range shards {
-				if shard.Status != master.WAITING {
+				if shard.Status != common.WAITING {
 					continue
 				}
 				if _, ok := shardsByExOwner[shard.ExOwner]; !ok {
@@ -223,14 +222,14 @@ func (kv *ShardKV) shardEraser() {
 			for gid, shards := range shardsByExOwner {
 				go func(shardsToErase []int, confNum int, groupId int) {
 					defer wg.Done()
-					args := EraseShardArgs{
-						BaseArgs: BaseArgs{
+					args := common.EraseShardArgs{
+						BaseArgsN: common.BaseArgsN {
 							ConfNum: confNum,
 							Gid: groupId,
 						},
 						Shards: shardsToErase,
 					}
-					reply := EraseShardReply{}
+					reply := common.EraseShardReply{}
 
 					nodesOfGroup, ok := kv.prevConfig.Groups[groupId]
 					if !ok {
@@ -269,7 +268,7 @@ func (kv *ShardKV) shardEraser() {
 }
 
 
-func (kv *ShardKV) getShards(status master.ShardStatus) []*Shard {
+func (kv *ShardKV) getShards(status common.ShardStatus) []*Shard {
 	shards := make([]*Shard, 0)
 	for _, shard := range kv.shardDB {
 		if shard == nil || shard.Status != status {
@@ -282,9 +281,9 @@ func (kv *ShardKV) getShards(status master.ShardStatus) []*Shard {
 }
 
 func (kv *ShardKV) executeGet(key string) ([]byte, common.Err) {
-	shardIdx := master.Key2shard(key)
+	shardIdx := common.Key2shard(key)
 	shard := kv.shardDB[shardIdx]
-	if kv.currConfig.Shards[shardIdx] != kv.gid || !(shard.Status == master.SERVING || shard.Status == master.WAITING) {
+	if kv.currConfig.Shards[shardIdx] != kv.gid || !(shard.Status == common.SERVING || shard.Status == common.WAITING) {
 		return nil, common.ErrWrongGroup
 	}
 	fullKey := fmt.Sprintf(ShardUserDataPattern, shard.Idx, key)

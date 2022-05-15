@@ -3,13 +3,14 @@ package master
 import (
 	"bytes"
 
+	"github.com/Allen1211/mrkv/pkg/common"
 	"github.com/Allen1211/mrkv/pkg/common/labgob"
 )
 
 type SnapshotPackage struct {
 	LastApplied int
-	Configs     []ConfigV1
-	RouteConfig ConfigV1
+	Configs     []common.ConfigV1
+	RouteConfig common.ConfigV1
 	Nodes       map[int]*Node
 	CkMaxSeq    map[int64]int64
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/Allen1211/mrkv/internal/master"
 	"github.com/Allen1211/mrkv/internal/master/etc"
+	"github.com/Allen1211/mrkv/pkg/common"
 	"github.com/Allen1211/mrkv/pkg/common/labgob"
 )
 
@@ -52,13 +53,13 @@ func main() {
 }
 
 func registerStructure()  {
-	labgob.Register(master.OpBase{})
-	labgob.Register(master.OpJoinCmd{})
-	labgob.Register(master.OpLeaveCmd{})
-	labgob.Register(master.OpMoveCmd{})
-	labgob.Register(master.OpQueryCmd{})
-	labgob.Register(master.OpHeartbeatCmd{})
-	labgob.Register(master.OpShowCmd{})
+	labgob.Register(common.OpBase{})
+	labgob.Register(common.OpJoinCmd{})
+	labgob.Register(common.OpLeaveCmd{})
+	labgob.Register(common.OpMoveCmd{})
+	labgob.Register(common.OpQueryCmd{})
+	labgob.Register(common.OpHeartbeatCmd{})
+	labgob.Register(common.OpShowCmd{})
 }
 
 func makeConfig() etc.MasterConf {

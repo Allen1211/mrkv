@@ -48,8 +48,8 @@ func MakeClerk(servers []*netw.ClientEnd) *Clerk {
 	return ck
 }
 
-func (ck *Clerk) Heartbeat(nodeId int, addr string, groups map[int]*GroupInfo) HeartbeatReply {
-	args := HeartbeatArgs{}
+func (ck *Clerk) Heartbeat(nodeId int, addr string, groups map[int]*common.GroupInfo) common.HeartbeatReply {
+	args := common.HeartbeatArgs{}
 	args.NodeId = nodeId
 	args.Addr = addr
 	args.Groups = groups
@@ -57,16 +57,16 @@ func (ck *Clerk) Heartbeat(nodeId int, addr string, groups map[int]*GroupInfo) H
 	args.Seq = ck.nextSeq()
 	i := ck.GetLeader()
 	for {
-		var reply HeartbeatReply
+		var reply common.HeartbeatReply
 		if ok := ck.servers[i].Call(netw.ApiHeartbeat, &args, &reply); !ok {
 			// log.Debugf("Client %d Fail to Send RPC to server %d", ck.id, i)
 			i = (i + 1) % len(ck.servers)
 			continue
 		}
-		if reply.Err == ErrFailed {
+		if reply.Err == common.ErrFailed {
 			// log.Errorf("Client %d SendRPC Err: %s", ck.id, reply.Err)
 			continue
-		} else if reply.Err == ErrWrongLeader || reply.WrongLeader {
+		} else if reply.Err == common.ErrWrongLeader || reply.WrongLeader {
 			// log.Debugf("Client SendRPC Err: %d is Not Leader, try another server", i)
 			i = (i + 1) % len(ck.servers)
 			continue
@@ -77,23 +77,23 @@ func (ck *Clerk) Heartbeat(nodeId int, addr string, groups map[int]*GroupInfo) H
 	}
 }
 
-func (ck *Clerk) Query(num int) ConfigV1 {
-	args := QueryArgs{}
+func (ck *Clerk) Query(num int) common.ConfigV1 {
+	args := common.QueryArgs{}
 	args.Num = num
 	args.Cid = ck.id
 	args.Seq = ck.nextSeq()
 	i := ck.GetLeader()
 	for {
-		var reply QueryReply
+		var reply common.QueryReply
 		if ok := ck.servers[i].Call(netw.ApiQuery, &args, &reply); !ok {
 			// log.Debugf("Client %d Fail to Send RPC to server %d", ck.id, i)
 			i = (i + 1) % len(ck.servers)
 			continue
 		}
-		if reply.Err == ErrFailed {
+		if reply.Err == common.ErrFailed {
 			// log.Errorf("Client %d SendRPC Err: %s", ck.id, reply.Err)
 			continue
-		} else if reply.Err == ErrWrongLeader || reply.WrongLeader {
+		} else if reply.Err == common.ErrWrongLeader || reply.WrongLeader {
 			// log.Debugf("Client SendRPC Err: %d is Not Leader, try another server", i)
 			i = (i + 1) % len(ck.servers)
 			continue
@@ -105,7 +105,7 @@ func (ck *Clerk) Query(num int) ConfigV1 {
 }
 
 func (ck *Clerk) Join(nodes map[int][]int) common.Err {
-	args := JoinArgs{}
+	args := common.JoinArgs{}
 	// Your code here.
 	args.Nodes = nodes
 	args.Cid = ck.id
@@ -113,16 +113,16 @@ func (ck *Clerk) Join(nodes map[int][]int) common.Err {
 
 	i := ck.GetLeader()
 	for {
-		var reply JoinReply
+		var reply common.JoinReply
 		if ok := ck.servers[i].Call(netw.ApiJoin, &args, &reply); !ok {
 			// log.Debugf("Client %d Fail to Send RPC to server %d", ck.id, i)
 			i = (i + 1) % len(ck.servers)
 			continue
 		}
-		if reply.Err == ErrFailed {
+		if reply.Err == common.ErrFailed {
 			// log.Errorf("Client %d SendRPC Err: %s", ck.id, reply.Err)
 			continue
-		} else if reply.Err == ErrWrongLeader || reply.WrongLeader {
+		} else if reply.Err == common.ErrWrongLeader || reply.WrongLeader {
 			// log.Debugf("Client SendRPC Err: %d is Not Leader, try another server", i)
 			i = (i + 1) % len(ck.servers)
 			continue
@@ -134,24 +134,24 @@ func (ck *Clerk) Join(nodes map[int][]int) common.Err {
 }
 
 func (ck *Clerk) Leave(gids []int) common.Err {
-	args := LeaveArgs{}
+	args := common.LeaveArgs{}
 	args.GIDs = gids
 	args.Cid = ck.id
 	args.Seq = ck.nextSeq()
 
 	i := ck.GetLeader()
 	for {
-		var reply LeaveReply
+		var reply common.LeaveReply
 		if ok := ck.servers[i].Call(netw.ApiLeave, &args, &reply); !ok {
 			// log.Debugf("Client %d Fail to Send RPC to server %d", ck.id, i)
 			i = (i + 1) % len(ck.servers)
 			continue
 		}
-		if reply.Err == ErrFailed {
+		if reply.Err == common.ErrFailed {
 			// log.Errorf("Client %d SendRPC Err: %s", ck.id, reply.Err)
 			i = (i + 1) % len(ck.servers)
 			continue
-		} else if reply.Err == ErrWrongLeader || reply.WrongLeader {
+		} else if reply.Err == common.ErrWrongLeader || reply.WrongLeader {
 			// log.Debugf("Client SendRPC Err: %d is Not Leader, try another server", i)
 			i = (i + 1) % len(ck.servers)
 			continue
@@ -162,7 +162,7 @@ func (ck *Clerk) Leave(gids []int) common.Err {
 }
 
 func (ck *Clerk) Move(shard int, gid int) {
-	args := MoveArgs{}
+	args := common.MoveArgs{}
 	args.Shard = shard
 	args.GID = gid
 	args.Cid = ck.id
@@ -170,16 +170,16 @@ func (ck *Clerk) Move(shard int, gid int) {
 
 	i := ck.GetLeader()
 	for {
-		var reply LeaveReply
+		var reply common.LeaveReply
 		if ok := ck.servers[i].Call(netw.ApiMove, &args, &reply); !ok {
 			// log.Debugf("Client %d Fail to Send RPC to server %d", ck.id, i)
 			i = (i + 1) % len(ck.servers)
 			continue
 		}
-		if reply.Err == ErrFailed {
+		if reply.Err == common.ErrFailed {
 			// log.Errorf("Client %d SendRPC Err: %s", ck.id, reply.Err)
 			continue
-		} else if reply.Err == ErrWrongLeader || reply.WrongLeader {
+		} else if reply.Err == common.ErrWrongLeader || reply.WrongLeader {
 			// log.Debugf("Client SendRPC Err: %d is Not Leader, try another server", i)
 			i = (i + 1) % len(ck.servers)
 			continue
@@ -191,19 +191,19 @@ func (ck *Clerk) Move(shard int, gid int) {
 
 
 
-func (ck *Clerk) Show(args ShowArgs) ShowReply {
+func (ck *Clerk) Show(args common.ShowArgs) common.ShowReply {
 	i := ck.GetLeader()
 	for {
-		var reply ShowReply
+		var reply common.ShowReply
 		if ok := ck.servers[i].Call(netw.ApiShow, &args, &reply); !ok {
 			// log.Debugf("Client %d Fail to Send RPC to server %d", ck.id, i)
 			i = (i + 1) % len(ck.servers)
 			continue
 		}
-		if reply.Err == ErrFailed {
+		if reply.Err == common.ErrFailed {
 			// log.Errorf("Client %d SendRPC Err: %s", ck.id, reply.Err)
 			continue
-		} else if reply.Err == ErrWrongLeader {
+		} else if reply.Err == common.ErrWrongLeader {
 			// log.Debugf("Client SendRPC Err: %d is Not Leader, try another server", i)
 			i = (i + 1) % len(ck.servers)
 			continue
@@ -214,15 +214,15 @@ func (ck *Clerk) Show(args ShowArgs) ShowReply {
 	}
 }
 
-func (ck *Clerk) ShowMaster() []ShowMasterReply {
+func (ck *Clerk) ShowMaster() []common.ShowMasterReply {
 	var wg sync.WaitGroup
-	res := make([]ShowMasterReply, len(ck.servers))
+	res := make([]common.ShowMasterReply, len(ck.servers))
 	wg.Add(len(ck.servers))
 	for i := 0; i < len(ck.servers); i++ {
 		go func(j int) {
 			defer wg.Done()
-			var reply ShowMasterReply
-			if ok := ck.servers[j].Call(netw.ApiShowMaster, &ShowMasterArgs{}, &reply); !ok {
+			var reply common.ShowMasterReply
+			if ok := ck.servers[j].Call(netw.ApiShowMaster, &common.ShowMasterArgs{}, &reply); !ok {
 				// log.Debugf("Client %d Fail to Send RPC to server %d", ck.id, j)
 
 				reply.Status = "Disconnected"

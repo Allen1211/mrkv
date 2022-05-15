@@ -1,12 +1,88 @@
-package master
-
-import (
-	"github.com/Allen1211/mrkv/pkg/common"
-)
+package common
 
 //go:generate msgp
 
 const NShards = 10
+
+type GroupStatus int
+
+const (
+	GroupJoined  = iota
+	GroupServing
+	GroupLeaving
+	GroupRemoving
+	GroupRemoved
+)
+
+func (s GroupStatus) String() string {
+	switch s {
+	case GroupJoined: 	return "Joined"
+	case GroupServing: 	return "Serving"
+	case GroupLeaving: 	return "Leaving"
+	case GroupRemoving: return "Removing"
+	case GroupRemoved: 	return "Removed"
+	}
+	return ""
+}
+
+type ShardStatus int
+
+const (
+	SERVING ShardStatus = iota
+	INVALID
+	PULLING
+	ERASING
+	WAITING
+)
+
+func (s ShardStatus) String() string {
+	switch s {
+	case SERVING: return "Serving"
+	case INVALID: return "Invalid"
+	case PULLING: return "Pulling"
+	case ERASING: return "Erasing"
+	case WAITING: return "Waiting"
+	}
+	return ""
+}
+
+func Key2shard(key string) int {
+	shard := hashString(key)
+	// if len(key) > 0 {
+	// 	shard = int(key[0])
+	// }
+	shard %= NShards
+	return shard
+}
+
+func hashString(s string) int {
+	seed := 131
+	hash := 0
+	for _, c := range s {
+		hash = hash*seed + int(c)
+	}
+	return hash
+}
+
+type NodeStatus int
+
+const (
+	NodeNormal NodeStatus = iota
+	NodeDisconnect
+	NodeShutdown
+)
+
+func (s NodeStatus) String() string {
+	switch s {
+	case NodeNormal:
+		return "Normal"
+	case NodeDisconnect:
+		return "Disconnect"
+	case NodeShutdown:
+		return "Shutdown"
+	}
+	return ""
+}
 
 type ConfigV1 struct {
 	Num	   		int
@@ -20,14 +96,6 @@ type ConfigNodeGroup struct {
 	RaftPeer	int
 	Addr		string
 }
-
-const (
-	OK = "OK"
-	ErrWrongLeader = "wrong leader"
-	ErrFailed = "failed"
-	ErrNodeNotRegister = "node not register"
-	ErrGroupNotServing = "group is not serving"
-)
 
 const (
 	OpJoin = iota
@@ -77,8 +145,6 @@ type OpShowCmd struct {
 	Args ShowArgs
 }
 
-type Err string
-
 type BaseArgs struct {
 	Cid int64
 	Seq int64
@@ -92,7 +158,7 @@ type JoinArgs struct {
 
 type JoinReply struct {
 	WrongLeader bool
-	Err         common.Err
+	Err         Err
 }
 
 type LeaveArgs struct {
@@ -102,7 +168,7 @@ type LeaveArgs struct {
 
 type LeaveReply struct {
 	WrongLeader bool
-	Err         common.Err
+	Err         Err
 }
 
 type MoveArgs struct {
@@ -113,7 +179,7 @@ type MoveArgs struct {
 
 type MoveReply struct {
 	WrongLeader bool
-	Err         common.Err
+	Err         Err
 }
 
 type QueryArgs struct {
@@ -123,7 +189,7 @@ type QueryArgs struct {
 
 type QueryReply struct {
 	WrongLeader bool
-	Err         common.Err
+	Err         Err
 	Config      ConfigV1
 }
 
@@ -136,7 +202,7 @@ type HeartbeatArgs struct {
 
 type HeartbeatReply struct {
 	WrongLeader bool
-	Err         common.Err
+	Err         Err
 	Configs     map[int]ConfigV1 // gid => config
 	PrevConfigs map[int]ConfigV1 // gid => config
 	LatestConf  ConfigV1
@@ -155,7 +221,7 @@ type ShowArgs struct {
 }
 
 type ShowReply struct {
-	Err    common.Err
+	Err    Err
 	Nodes  []ShowNodeRes
 	Groups []ShowGroupRes
 	Shards []ShowShardRes
@@ -233,7 +299,7 @@ type TransferLeaderArgs struct {
 }
 
 type TransferLeaderReply struct {
-	Err common.Err
+	Err Err
 }
 
 type ShowMasterArgs struct {

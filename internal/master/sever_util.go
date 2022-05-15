@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/Allen1211/mrkv/internal/netw"
+	"github.com/Allen1211/mrkv/pkg/common"
 )
 
 func (sm *ShardMaster) createGroup2Nodes() map[int][]int {
@@ -28,7 +29,7 @@ func (sm *ShardMaster) createGroup2Nodes() map[int][]int {
 	return res
 }
 
-func (sm *ShardMaster) getLatestConfig() ConfigV1 {
+func (sm *ShardMaster) getLatestConfig() common.ConfigV1 {
 	latestConfig := sm.configs[len(sm.configs)-1]
 	return latestConfig
 }
@@ -54,10 +55,10 @@ func (sm *ShardMaster) printLatestConfig(needLock bool)  {
 	}
 }
 
-func (sm *ShardMaster) deepCopyConfMap(conf ConfigV1) map[int][]ConfigNodeGroup {
-	res := make(map[int][]ConfigNodeGroup)
+func (sm *ShardMaster) deepCopyConfMap(conf common.ConfigV1) map[int][]common.ConfigNodeGroup {
+	res := make(map[int][]common.ConfigNodeGroup)
 	for gid, servers := range conf.Groups {
-		res[gid] = make([]ConfigNodeGroup, len(servers))
+		res[gid] = make([]common.ConfigNodeGroup, len(servers))
 		copy(res[gid], servers)
 	}
 	return res

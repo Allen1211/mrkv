@@ -6,18 +6,18 @@ import (
 
 	"github.com/syndtr/goleveldb/leveldb"
 
-	"github.com/Allen1211/mrkv/internal/master"
+	"github.com/Allen1211/mrkv/pkg/common"
 )
 
 type Shard struct {
 	Idx     int
-	Status  master.ShardStatus
+	Status  common.ShardStatus
 	ExOwner int
 
 	Store Store
 }
 
-func MakeShard(id int, status master.ShardStatus, exOwner int, store Store) *Shard {
+func MakeShard(id int, status common.ShardStatus, exOwner int, store Store) *Shard {
 	s := new(Shard)
 	s.Idx = id
 	s.Store = store
@@ -26,7 +26,7 @@ func MakeShard(id int, status master.ShardStatus, exOwner int, store Store) *Sha
 	return s
 }
 
-func (s *Shard) SetStatus(status master.ShardStatus) {
+func (s *Shard) SetStatus(status common.ShardStatus) {
 	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, uint64(status))
 	if err := s.Store.Put(fmt.Sprintf(ShardMetaPrefix, s.Idx, "status"), buf); err != nil {
@@ -118,7 +118,7 @@ func (s *Shard) LoadFromStore() (err error) {
 	if val, err = s.Store.Get(fmt.Sprintf(ShardMetaPrefix, s.Idx, "status")); err != nil {
 		return err
 	} else if val != nil  {
-		s.Status = master.ShardStatus(binary.LittleEndian.Uint64(val))
+		s.Status = common.ShardStatus(binary.LittleEndian.Uint64(val))
 	}
 	if val, err = s.Store.Get(fmt.Sprintf(ShardMetaPrefix, s.Idx, "exOwner")); err != nil {
 		return err

@@ -1,7 +1,6 @@
 package replica
 
 import (
-	"github.com/Allen1211/mrkv/internal/master"
 	"github.com/Allen1211/mrkv/internal/raft"
 	"github.com/Allen1211/mrkv/pkg/common"
 )
@@ -61,18 +60,18 @@ type StopWaitingShardCmd struct {
 
 type ConfCmd struct {
 	CmdBase
-	Config master.ConfigV1
+	Config common.ConfigV1
 }
 
 type ApplyRes interface {
 	GetErr() common.Err
-	GetCmdType() CmdType
+	GetCmdType() common.CmdType
 	GetIdx()		int
 }
 
 type ApplyResBase struct {
 	err     common.Err
-	cmdType CmdType
+	cmdType common.CmdType
 	idx     int
 }
 
@@ -80,7 +79,7 @@ func (arb *ApplyResBase) GetErr() common.Err {
 	return arb.err
 }
 
-func (arb *ApplyResBase) GetCmdType() CmdType {
+func (arb *ApplyResBase) GetCmdType() common.CmdType {
 	return arb.cmdType
 }
 

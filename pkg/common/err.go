@@ -14,4 +14,5 @@ const (
 	ErrDiffConf        Err = "ErrDiffConf"
 	ErrNodeNotRegister Err = "node not register"
 	ErrNodeClosed      Err = "ErrNodeClosed"
+	ErrGroupNotServing = "group is not serving"
 )

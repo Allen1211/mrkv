@@ -12,8 +12,6 @@ import (
 	"github.com/liushuochen/gotable/cell"
 	table2 "github.com/liushuochen/gotable/table"
 
-	"github.com/Allen1211/mrkv/internal/master"
-	"github.com/Allen1211/mrkv/internal/replica"
 	"github.com/Allen1211/mrkv/pkg/client/etc"
 	"github.com/Allen1211/mrkv/pkg/common"
 )
@@ -334,7 +332,7 @@ func (cc *ConsoleClient) slash() string {
 	return fmt.Sprintf("> ")
 }
 
-func (cc *ConsoleClient) fromStr(from replica.FromReply) string {
+func (cc *ConsoleClient) fromStr(from common.FromReply) string {
 	return fmt.Sprintf("(From node %d, group %d, peer %d)", from.NodeId, from.GID, from.Peer)
 }
 
@@ -368,7 +366,7 @@ func printUserGuide(stdout *bufio.Writer) {
 	_ = stdout.Flush()
 }
 
-func (cc *ConsoleClient) printShowNodeRes(nodes []master.ShowNodeRes)  {
+func (cc *ConsoleClient) printShowNodeRes(nodes []common.ShowNodeRes)  {
 	stdout := cc.stdout
 
 	sort.Slice(nodes, func(i, j int) bool {
@@ -405,7 +403,7 @@ func (cc *ConsoleClient) printShowNodeRes(nodes []master.ShowNodeRes)  {
 	_, _ = stdout.WriteString(table.String())
 }
 
-func (cc *ConsoleClient) printShowGroupRes(groups []master.ShowGroupRes)  {
+func (cc *ConsoleClient) printShowGroupRes(groups []common.ShowGroupRes)  {
 	stdout := cc.stdout
 
 	sort.Slice(groups, func(i, j int) bool {
@@ -440,7 +438,7 @@ func (cc *ConsoleClient) printShowGroupRes(groups []master.ShowGroupRes)  {
 
 }
 
-func (cc *ConsoleClient) printShowShardRes(shards []master.ShowShardRes)  {
+func (cc *ConsoleClient) printShowShardRes(shards []common.ShowShardRes)  {
 	stdout := cc.stdout
 
 	sort.Slice(shards, func(i, j int) bool {
@@ -470,7 +468,7 @@ func (cc *ConsoleClient) printShowShardRes(shards []master.ShowShardRes)  {
 	_, _ = stdout.WriteString(table.String())
 }
 
-func (cc *ConsoleClient) printShowMasterRes(masters []master.ShowMasterReply)  {
+func (cc *ConsoleClient) printShowMasterRes(masters []common.ShowMasterReply)  {
 	stdout := cc.stdout
 
 	table, err := gotable.Create("Id", "Addr", "IsLeader", "ConfNum", "Size", "Status")

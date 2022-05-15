@@ -38,10 +38,10 @@ type Node struct {
 	store replica.Store
 
 	groups     map[int]*Group
-	nodeInfos  map[int]master.NodeInfo
+	nodeInfos  map[int]common.NodeInfo
 	nodeEnds   map[int]*netw.ClientEnd
-	routeConf  master.ConfigV1
-	latestConf master.ConfigV1
+	routeConf  common.ConfigV1
+	latestConf common.ConfigV1
 
 	KilledC		chan int
 	killed      int32
@@ -62,7 +62,7 @@ func MakeNode(userConf etc.NodeConf, masters []*netw.ClientEnd, logLevel string)
 		mck:      master.MakeClerk(masters),
 
 		groups:    map[int]*Group{},
-		nodeInfos: map[int]master.NodeInfo{},
+		nodeInfos: map[int]common.NodeInfo{},
 		nodeEnds: map[int]*netw.ClientEnd{},
 
 		KilledC: make(chan int, 10),
@@ -136,7 +136,7 @@ func (n *Node) recover()  {
 			RaftPeers: save.RaftPeers,
 		}
 		n.logger.Infof("recover group :%v", *group)
-		if save.Status != master.GroupRemoved {
+		if save.Status != common.GroupRemoved {
 			group.replica = n.doStartReplica(save.Id, save.Peer, save.RaftPeers)
 			n.logger.Infof("start group %d", group.Id)
 		}
@@ -148,7 +148,7 @@ func (n *Node) recover()  {
 
 func (n *Node) heartbeat()  {
 	n.mu.RLock()
-	groups := map[int]*master.GroupInfo{}
+	groups := map[int]*common.GroupInfo{}
 	for gid, group := range n.groups {
 		groups[gid] = group.GetGroupInfo()
 	}
@@ -182,8 +182,8 @@ func (n *Node) heartbeat()  {
 	for gid, remoteGroup := range reply.Groups {
 		config := reply.Configs[gid]
 
-		if localGroup, ok := n.groups[gid]; !ok || localGroup.Status == master.GroupRemoved {
-			if remoteGroup.Status == master.GroupJoined {
+		if localGroup, ok := n.groups[gid]; !ok || localGroup.Status == common.GroupRemoved {
+			if remoteGroup.Status == common.GroupJoined {
 				// new group join in
 				n.logger.Infof("group %d is newly gain, startNewGroup, remoteGroup=%v", gid, remoteGroup)
 				n.groups[gid] = n.startNewGroup(remoteGroup, reply.PrevConfigs[gid], config)
@@ -193,16 +193,16 @@ func (n *Node) heartbeat()  {
 			// pass config to replica
 			localGroup.UpdateConfig(config)
 
-			if remoteGroup.Status == master.GroupRemoving {
-				if localGroup.Status != master.GroupRemoving {
-					localGroup.Status = master.GroupRemoving
+			if remoteGroup.Status == common.GroupRemoving {
+				if localGroup.Status != common.GroupRemoving {
+					localGroup.Status = common.GroupRemoving
 					n.logger.Infof("group %d status %d => %d", gid, localGroup.Status, remoteGroup.Status)
 				}
 
-			} else if remoteGroup.Status == master.GroupRemoved {
+			} else if remoteGroup.Status == common.GroupRemoved {
 				n.logger.Infof("group %d need to shutdown", gid)
 				localGroup.Shutdown()
-				localGroup.Status = master.GroupRemoved
+				localGroup.Status = common.GroupRemoved
 				n.logger.Infof("group %d successfully shutdown", gid)
 
 			} else if localGroup.Status != remoteGroup.Status {
@@ -223,7 +223,7 @@ func (n *Node) heartbeat()  {
 	n.printGroupsInfo()
 }
 
-func (n *Node) startNewGroup(remoteGroup master.GroupInfo, prevConfig, currConfig master.ConfigV1) *Group {
+func (n *Node) startNewGroup(remoteGroup common.GroupInfo, prevConfig, currConfig common.ConfigV1) *Group {
 	gid := remoteGroup.Id
 	ngs := n.routeConf.Groups[gid]
 
@@ -268,12 +268,12 @@ func (n *Node) printGroupsInfo()  {
 
 type NodeMetaForSave struct {
 	Groups     []GroupInfoForSave
-	LatestConf master.ConfigV1
+	LatestConf common.ConfigV1
 }
 
 type GroupInfoForSave struct {
 	Id        int
-	Status    master.GroupStatus
+	Status    common.GroupStatus
 	Peer      int
 	RaftPeers int
 }
