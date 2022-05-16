@@ -48,10 +48,11 @@ func MakeClerk(servers []*netw.ClientEnd) *Clerk {
 	return ck
 }
 
-func (ck *Clerk) Heartbeat(nodeId int, addr string, groups map[int]*common.GroupInfo) common.HeartbeatReply {
+func (ck *Clerk) Heartbeat(nodeId int, addr, metricAddr string, groups map[int]*common.GroupInfo) common.HeartbeatReply {
 	args := common.HeartbeatArgs{}
 	args.NodeId = nodeId
 	args.Addr = addr
+	args.MetricAddr = metricAddr
 	args.Groups = groups
 	args.Cid = ck.id
 	args.Seq = ck.nextSeq()

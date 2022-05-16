@@ -1208,6 +1208,12 @@ func (z *HeartbeatArgs) DecodeMsg(dc *msgp.Reader) (err error) {
 				}
 				z.Groups[za0001] = za0002
 			}
+		case "MetricAddr":
+			z.MetricAddr, err = dc.ReadString()
+			if err != nil {
+				err = msgp.WrapError(err, "MetricAddr")
+				return
+			}
 		default:
 			err = dc.Skip()
 			if err != nil {
@@ -1221,9 +1227,9 @@ func (z *HeartbeatArgs) DecodeMsg(dc *msgp.Reader) (err error) {
 
 // EncodeMsg implements msgp.Encodable
 func (z *HeartbeatArgs) EncodeMsg(en *msgp.Writer) (err error) {
-	// map header, size 4
+	// map header, size 5
 	// write "BaseArgs"
-	err = en.Append(0x84, 0xa8, 0x42, 0x61, 0x73, 0x65, 0x41, 0x72, 0x67, 0x73)
+	err = en.Append(0x85, 0xa8, 0x42, 0x61, 0x73, 0x65, 0x41, 0x72, 0x67, 0x73)
 	if err != nil {
 		return
 	}
@@ -1297,15 +1303,25 @@ func (z *HeartbeatArgs) EncodeMsg(en *msgp.Writer) (err error) {
 			}
 		}
 	}
+	// write "MetricAddr"
+	err = en.Append(0xaa, 0x4d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x41, 0x64, 0x64, 0x72)
+	if err != nil {
+		return
+	}
+	err = en.WriteString(z.MetricAddr)
+	if err != nil {
+		err = msgp.WrapError(err, "MetricAddr")
+		return
+	}
 	return
 }
 
 // MarshalMsg implements msgp.Marshaler
 func (z *HeartbeatArgs) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// map header, size 4
+	// map header, size 5
 	// string "BaseArgs"
-	o = append(o, 0x84, 0xa8, 0x42, 0x61, 0x73, 0x65, 0x41, 0x72, 0x67, 0x73)
+	o = append(o, 0x85, 0xa8, 0x42, 0x61, 0x73, 0x65, 0x41, 0x72, 0x67, 0x73)
 	// map header, size 2
 	// string "Cid"
 	o = append(o, 0x82, 0xa3, 0x43, 0x69, 0x64)
@@ -1334,6 +1350,9 @@ func (z *HeartbeatArgs) MarshalMsg(b []byte) (o []byte, err error) {
 			}
 		}
 	}
+	// string "MetricAddr"
+	o = append(o, 0xaa, 0x4d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x41, 0x64, 0x64, 0x72)
+	o = msgp.AppendString(o, z.MetricAddr)
 	return
 }
 
@@ -1443,6 +1462,12 @@ func (z *HeartbeatArgs) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				}
 				z.Groups[za0001] = za0002
 			}
+		case "MetricAddr":
+			z.MetricAddr, bts, err = msgp.ReadStringBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "MetricAddr")
+				return
+			}
 		default:
 			bts, err = msgp.Skip(bts)
 			if err != nil {
@@ -1469,6 +1494,7 @@ func (z *HeartbeatArgs) Msgsize() (s int) {
 			}
 		}
 	}
+	s += 11 + msgp.StringPrefixSize + len(z.MetricAddr)
 	return
 }
 
@@ -7253,6 +7279,12 @@ func (z *ShowMasterReply) DecodeMsg(dc *msgp.Reader) (err error) {
 				err = msgp.WrapError(err, "Status")
 				return
 			}
+		case "MetricAddr":
+			z.MetricAddr, err = dc.ReadString()
+			if err != nil {
+				err = msgp.WrapError(err, "MetricAddr")
+				return
+			}
 		default:
 			err = dc.Skip()
 			if err != nil {
@@ -7266,9 +7298,9 @@ func (z *ShowMasterReply) DecodeMsg(dc *msgp.Reader) (err error) {
 
 // EncodeMsg implements msgp.Encodable
 func (z *ShowMasterReply) EncodeMsg(en *msgp.Writer) (err error) {
-	// map header, size 6
+	// map header, size 7
 	// write "Id"
-	err = en.Append(0x86, 0xa2, 0x49, 0x64)
+	err = en.Append(0x87, 0xa2, 0x49, 0x64)
 	if err != nil {
 		return
 	}
@@ -7327,15 +7359,25 @@ func (z *ShowMasterReply) EncodeMsg(en *msgp.Writer) (err error) {
 		err = msgp.WrapError(err, "Status")
 		return
 	}
+	// write "MetricAddr"
+	err = en.Append(0xaa, 0x4d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x41, 0x64, 0x64, 0x72)
+	if err != nil {
+		return
+	}
+	err = en.WriteString(z.MetricAddr)
+	if err != nil {
+		err = msgp.WrapError(err, "MetricAddr")
+		return
+	}
 	return
 }
 
 // MarshalMsg implements msgp.Marshaler
 func (z *ShowMasterReply) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// map header, size 6
+	// map header, size 7
 	// string "Id"
-	o = append(o, 0x86, 0xa2, 0x49, 0x64)
+	o = append(o, 0x87, 0xa2, 0x49, 0x64)
 	o = msgp.AppendInt(o, z.Id)
 	// string "Addr"
 	o = append(o, 0xa4, 0x41, 0x64, 0x64, 0x72)
@@ -7352,6 +7394,9 @@ func (z *ShowMasterReply) MarshalMsg(b []byte) (o []byte, err error) {
 	// string "Status"
 	o = append(o, 0xa6, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73)
 	o = msgp.AppendString(o, z.Status)
+	// string "MetricAddr"
+	o = append(o, 0xaa, 0x4d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x41, 0x64, 0x64, 0x72)
+	o = msgp.AppendString(o, z.MetricAddr)
 	return
 }
 
@@ -7409,6 +7454,12 @@ func (z *ShowMasterReply) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				err = msgp.WrapError(err, "Status")
 				return
 			}
+		case "MetricAddr":
+			z.MetricAddr, bts, err = msgp.ReadStringBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "MetricAddr")
+				return
+			}
 		default:
 			bts, err = msgp.Skip(bts)
 			if err != nil {
@@ -7423,7 +7474,7 @@ func (z *ShowMasterReply) UnmarshalMsg(bts []byte) (o []byte, err error) {
 
 // Msgsize returns an upper bound estimate of the number of bytes occupied by the serialized message
 func (z *ShowMasterReply) Msgsize() (s int) {
-	s = 1 + 3 + msgp.IntSize + 5 + msgp.StringPrefixSize + len(z.Addr) + 9 + msgp.BoolSize + 14 + msgp.IntSize + 5 + msgp.Int64Size + 7 + msgp.StringPrefixSize + len(z.Status)
+	s = 1 + 3 + msgp.IntSize + 5 + msgp.StringPrefixSize + len(z.Addr) + 9 + msgp.BoolSize + 14 + msgp.IntSize + 5 + msgp.Int64Size + 7 + msgp.StringPrefixSize + len(z.Status) + 11 + msgp.StringPrefixSize + len(z.MetricAddr)
 	return
 }
 
@@ -7518,6 +7569,12 @@ func (z *ShowNodeRes) DecodeMsg(dc *msgp.Reader) (err error) {
 				err = msgp.WrapError(err, "Status")
 				return
 			}
+		case "MetricAddr":
+			z.MetricAddr, err = dc.ReadString()
+			if err != nil {
+				err = msgp.WrapError(err, "MetricAddr")
+				return
+			}
 		default:
 			err = dc.Skip()
 			if err != nil {
@@ -7531,9 +7588,9 @@ func (z *ShowNodeRes) DecodeMsg(dc *msgp.Reader) (err error) {
 
 // EncodeMsg implements msgp.Encodable
 func (z *ShowNodeRes) EncodeMsg(en *msgp.Writer) (err error) {
-	// map header, size 6
+	// map header, size 7
 	// write "Found"
-	err = en.Append(0x86, 0xa5, 0x46, 0x6f, 0x75, 0x6e, 0x64)
+	err = en.Append(0x87, 0xa5, 0x46, 0x6f, 0x75, 0x6e, 0x64)
 	if err != nil {
 		return
 	}
@@ -7611,15 +7668,25 @@ func (z *ShowNodeRes) EncodeMsg(en *msgp.Writer) (err error) {
 		err = msgp.WrapError(err, "Status")
 		return
 	}
+	// write "MetricAddr"
+	err = en.Append(0xaa, 0x4d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x41, 0x64, 0x64, 0x72)
+	if err != nil {
+		return
+	}
+	err = en.WriteString(z.MetricAddr)
+	if err != nil {
+		err = msgp.WrapError(err, "MetricAddr")
+		return
+	}
 	return
 }
 
 // MarshalMsg implements msgp.Marshaler
 func (z *ShowNodeRes) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// map header, size 6
+	// map header, size 7
 	// string "Found"
-	o = append(o, 0x86, 0xa5, 0x46, 0x6f, 0x75, 0x6e, 0x64)
+	o = append(o, 0x87, 0xa5, 0x46, 0x6f, 0x75, 0x6e, 0x64)
 	o = msgp.AppendBool(o, z.Found)
 	// string "Id"
 	o = append(o, 0xa2, 0x49, 0x64)
@@ -7643,6 +7710,9 @@ func (z *ShowNodeRes) MarshalMsg(b []byte) (o []byte, err error) {
 	// string "Status"
 	o = append(o, 0xa6, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73)
 	o = msgp.AppendString(o, z.Status)
+	// string "MetricAddr"
+	o = append(o, 0xaa, 0x4d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x41, 0x64, 0x64, 0x72)
+	o = msgp.AppendString(o, z.MetricAddr)
 	return
 }
 
@@ -7737,6 +7807,12 @@ func (z *ShowNodeRes) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				err = msgp.WrapError(err, "Status")
 				return
 			}
+		case "MetricAddr":
+			z.MetricAddr, bts, err = msgp.ReadStringBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "MetricAddr")
+				return
+			}
 		default:
 			bts, err = msgp.Skip(bts)
 			if err != nil {
@@ -7758,7 +7834,7 @@ func (z *ShowNodeRes) Msgsize() (s int) {
 			s += msgp.StringPrefixSize + msgp.IntSize + msgp.BoolSize
 		}
 	}
-	s += 7 + msgp.StringPrefixSize + len(z.Status)
+	s += 7 + msgp.StringPrefixSize + len(z.Status) + 11 + msgp.StringPrefixSize + len(z.MetricAddr)
 	return
 }
 

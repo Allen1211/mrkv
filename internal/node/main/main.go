@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+
 	// "net/http/pprof"
 	_ "net/http/pprof"
 
@@ -31,13 +32,11 @@ func init() {
 	// }()
 }
 
-
 func main() {
 	registerStructure()
 
 	conf := makeConfig()
 	server := StartServer(conf)
-
 	<-server.KilledC
 }
 

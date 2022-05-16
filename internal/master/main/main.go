@@ -2,27 +2,12 @@ package main
 
 import (
 	"flag"
-	"fmt"
-	"net/http"
-	"time"
-
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/allen1211/mrkv/internal/master"
 	"github.com/allen1211/mrkv/internal/master/etc"
 	"github.com/allen1211/mrkv/pkg/common"
 	"github.com/allen1211/mrkv/pkg/common/labgob"
-)
-
-var (
-	opsProcessed = promauto.NewCounter(prometheus.CounterOpts{
-		Namespace: "mrkv",
-		Name:      "cnt",
-		Help:      "The total number of processed events",
-	})
 )
 
 func main() {
@@ -36,18 +21,6 @@ func main() {
 	// 	err := http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", 9080 + conf.Serv.Me), nil)
 	// 	log.Println(err)
 	// }()
-
-	go func() {
-		tick := time.Tick(time.Second)
-		for range tick {
-			opsProcessed.Inc()
-		}
-	}()
-
-	go func() {
-		http.Handle("/metrics", promhttp.Handler())
-		http.ListenAndServe(fmt.Sprintf(":%d", 2112 + conf.Serv.Me), nil)
-	}()
 
 	<-server.KilledC
 }

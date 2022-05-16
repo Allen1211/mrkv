@@ -6,11 +6,16 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 
 	"github.com/allen1211/mrkv/internal/master/etc"
@@ -18,6 +23,14 @@ import (
 	"github.com/allen1211/mrkv/internal/raft"
 	"github.com/allen1211/mrkv/pkg/common"
 	"github.com/allen1211/mrkv/pkg/common/utils"
+)
+
+var (
+	opsProcessed = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "mrkv_master",
+		Name:      "cnt",
+		Help:      "The total number of processed events",
+	})
 )
 
 type ShardMaster struct {
@@ -44,6 +57,8 @@ type ShardMaster struct {
 	killed  int32
 
 	log		*logrus.Logger
+
+	metricAddr string
 }
 
 type Node struct {
@@ -52,6 +67,7 @@ type Node struct {
 	Groups   map[int]*common.GroupInfo
 	Status   common.NodeStatus
 	LastBeat time.Time
+	MetricAddr string
 }
 
 func (sm *ShardMaster) applyer() {
@@ -464,6 +480,7 @@ func (sm *ShardMaster) ShowMaster(ctx context.Context, args *common.ShowMasterAr
 	reply.LatestConfNum = sm.getLatestConfig().Num
 	reply.Size = int64(sm.persister.RaftStateSize() + sm.persister.SnapshotSize())
 	reply.Status = "Normal"
+	reply.MetricAddr = sm.metricAddr
 	return
 }
 
@@ -511,12 +528,14 @@ func (sm *ShardMaster) executeHeartbeat(args *common.HeartbeatArgs) (reply *comm
 			Id: args.NodeId,
 			Addr: args.Addr,
 			Groups: args.Groups,
+			MetricAddr: args.MetricAddr,
 		}
 		sm.nodes[args.NodeId] = node
 
 	} else {
 		node = val
 		node.Addr = args.Addr
+		node.MetricAddr = args.MetricAddr
 		// node.Groups = args.Groups
 
 		for gid, argGroup := range args.Groups {
@@ -863,7 +882,7 @@ func (sm *ShardMaster) executeShow(args *common.ShowArgs) (reply *common.ShowRep
 		for _, nodeId := range nodeIds {
 			node, ok := sm.nodes[nodeId]
 			if !ok {
-				reply.Nodes = append(reply.Nodes, common.ShowNodeRes{
+				reply.Nodes = append(reply.Nodes, common.ShowNodeRes {
 					Found: false,
 					Id: nodeId,
 				})
@@ -875,13 +894,14 @@ func (sm *ShardMaster) executeShow(args *common.ShowArgs) (reply *common.ShowRep
 				gids = append(gids, gid)
 				isLeader[gid] = g.IsLeader
 			}
-			info := common.ShowNodeRes{
+			info := common.ShowNodeRes {
 				Found: true,
 				Id: nodeId,
 				Addr: node.Addr,
 				Groups: gids,
 				IsLeader: isLeader,
 				Status: node.Status.String(),
+				MetricAddr: node.MetricAddr,
 			}
 			reply.Nodes = append(reply.Nodes, info)
 		}
@@ -1287,11 +1307,25 @@ func StartServer(conf etc.MasterConf) *ShardMaster {
 	}
 	sm.servers = servers
 
+	addr := conf.Serv.Servers[sm.me]
+	host := addr[:strings.Index(addr, ":")]
+	sm.metricAddr = fmt.Sprintf("%s:%d", host, 9200 + sm.me)
 
 	go sm.applyer()
 	go sm.checkpointer()
 	go sm.nodeStatusUpdater()
 	go sm.leaderBalancer()
+
+	go func() {
+		tick := time.Tick(time.Second)
+		for range tick {
+			opsProcessed.Inc()
+		}
+	}()
+	go func() {
+		http.Handle("/metrics", promhttp.Handler())
+		http.ListenAndServe(sm.metricAddr, nil)
+	}()
 
 	return sm
 }

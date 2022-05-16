@@ -198,6 +198,7 @@ type HeartbeatArgs struct {
 	NodeId		int
 	Addr		string
 	Groups		map[int]*GroupInfo
+	MetricAddr  string
 }
 
 type HeartbeatReply struct {
@@ -234,6 +235,7 @@ type ShowNodeRes struct {
 	Groups		[]int
 	IsLeader    map[int]bool
 	Status		string
+	MetricAddr 	string
 }
 
 type ShowGroupRes struct {
@@ -313,4 +315,5 @@ type ShowMasterReply struct {
 	LatestConfNum	int
 	Size			int64
 	Status			string
+	MetricAddr 		string
 }

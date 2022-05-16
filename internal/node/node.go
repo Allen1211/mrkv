@@ -9,6 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
 
@@ -19,6 +22,14 @@ import (
 	"github.com/allen1211/mrkv/pkg/common"
 	"github.com/allen1211/mrkv/pkg/common/labgob"
 	"github.com/allen1211/mrkv/pkg/common/utils"
+)
+
+var (
+	opsProcessed = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "mrkv_node",
+		Name:      "cnt",
+		Help:      "The total number of processed events",
+	})
 )
 
 type Node struct {
@@ -45,6 +56,8 @@ type Node struct {
 
 	KilledC		chan int
 	killed      int32
+
+	metricAddr  string
 }
 
 func (n *Node) Addr() string {
@@ -84,6 +97,18 @@ func MakeNode(userConf etc.NodeConf, masters []*netw.ClientEnd, logLevel string)
 	go func() {
 		err := http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", 9090 + node.Id), nil)
 		node.logger.Errorf("%v", err)
+	}()
+
+	node.metricAddr = fmt.Sprintf("%s:%d", node.Host, 9300+node.Id);
+	go func() {
+		tick := time.Tick(time.Second)
+		for range tick {
+			opsProcessed.Inc()
+		}
+	}()
+	go func() {
+		http.Handle("/metrics", promhttp.Handler())
+		http.ListenAndServe(node.metricAddr, nil)
 	}()
 
 	return node
@@ -156,7 +181,7 @@ func (n *Node) heartbeat()  {
 
 	n.logger.Debugf("begin to send heartbeat, current groups: %v", groups)
 
-	reply := n.mck.Heartbeat(n.Id, n.Addr(), groups)
+	reply := n.mck.Heartbeat(n.Id, n.Addr(), n.metricAddr, groups)
 
 	n.mu.Lock()
 	defer n.mu.Unlock()

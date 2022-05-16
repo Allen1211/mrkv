@@ -18,19 +18,19 @@ func Test1(t *testing.T) {
 
 	clerk := MakeClerk(masters)
 
-	reply := clerk.Heartbeat(4, "127.0.0.1:8400", map[int]*common.GroupInfo{})
+	reply := clerk.Heartbeat(4, "127.0.0.1:8400", "", map[int]*common.GroupInfo{})
 	// fmt.Println(reply)
 	// clerk.Join(map[int][]int{
 	// 	// 100: []int{1,2,3},
 	// 	200: []int{2,3,4},
 	// })
-	reply = clerk.Heartbeat(1, "127.0.0.1:8100", map[int]*common.GroupInfo{})
+	reply = clerk.Heartbeat(1, "127.0.0.1:8100","", map[int]*common.GroupInfo{})
 	fmt.Println(reply)
-	reply = clerk.Heartbeat(2, "127.0.0.1:8200", map[int]*common.GroupInfo{})
+	reply = clerk.Heartbeat(2, "127.0.0.1:8200","", map[int]*common.GroupInfo{})
 	fmt.Println(reply)
-	reply = clerk.Heartbeat(3, "127.0.0.1:8300", map[int]*common.GroupInfo{})
+	reply = clerk.Heartbeat(3, "127.0.0.1:8300", "",map[int]*common.GroupInfo{})
 	fmt.Println(reply)
-	reply = clerk.Heartbeat(4, "127.0.0.1:8400", map[int]*common.GroupInfo{})
+	reply = clerk.Heartbeat(4, "127.0.0.1:8400","", map[int]*common.GroupInfo{})
 	fmt.Println(reply)
 
 	// clerk.Leave([]int{200})
