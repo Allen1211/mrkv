@@ -1,0 +1,16 @@
+{
+  "node_id": 4,
+  "host": "127.0.0.1",
+  "port": 8400,
+  "masters": [":8000", ":8001", ":8002"],
+  "db_dir": "C:/Users/83780/MultiRaftKV/data/node",
+  "raft": {
+    "data_dir": "C:/Users/83780/MultiRaftKV/data/node",
+    "wal_dir": "C:/Users/83780/MultiRaftKV/logs/node",
+    "wal_cap": 67108864,
+    "log_level": "warn"
+  },
+  "serv": {
+    "log_level": "warn"
+  }
+}

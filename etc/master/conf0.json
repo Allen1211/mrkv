@@ -1,0 +1,13 @@
+{
+  "raft": {
+    "data_dir": "C:/Users/83780/MultiRaftKV/data/master",
+    "wal_dir": "C:/Users/83780/MultiRaftKV/logs/master",
+    "wal_cap": 1048576,
+    "log_level": "warn"
+  },
+  "serv": {
+    "servers": ["localhost:8000", "localhost:8001", "localhost:8002"],
+    "me": 0,
+    "log_level": "info"
+  }
+}
