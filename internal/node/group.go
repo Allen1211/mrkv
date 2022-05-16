@@ -1,8 +1,8 @@
 package node
 
 import (
-	"github.com/Allen1211/mrkv/internal/replica"
-	"github.com/Allen1211/mrkv/pkg/common"
+	"github.com/allen1211/mrkv/internal/replica"
+	"github.com/allen1211/mrkv/pkg/common"
 )
 
 type Group struct {

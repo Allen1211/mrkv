@@ -8,12 +8,12 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/Allen1211/mrkv/internal/netw"
-	"github.com/Allen1211/mrkv/internal/node"
-	"github.com/Allen1211/mrkv/internal/node/etc"
-	"github.com/Allen1211/mrkv/internal/raft"
-	"github.com/Allen1211/mrkv/internal/replica"
-	"github.com/Allen1211/mrkv/pkg/common/labgob"
+	"github.com/allen1211/mrkv/internal/netw"
+	"github.com/allen1211/mrkv/internal/node"
+	"github.com/allen1211/mrkv/internal/node/etc"
+	"github.com/allen1211/mrkv/internal/raft"
+	"github.com/allen1211/mrkv/internal/replica"
+	"github.com/allen1211/mrkv/pkg/common/labgob"
 )
 
 func init() {

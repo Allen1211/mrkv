@@ -5,7 +5,7 @@ import (
 
 	"github.com/Allen1211/msgp/msgp"
 
-	common2 "github.com/Allen1211/mrkv/pkg/common"
+	common2 "github.com/allen1211/mrkv/pkg/common"
 )
 
 func MsgpEncode(e msgp.Encodable) []byte {

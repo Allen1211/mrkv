@@ -9,10 +9,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Allen1211/mrkv/internal/master"
-	"github.com/Allen1211/mrkv/internal/netw"
-	"github.com/Allen1211/mrkv/internal/raft"
-	"github.com/Allen1211/mrkv/pkg/common"
+	"github.com/allen1211/mrkv/internal/master"
+	"github.com/allen1211/mrkv/internal/netw"
+	"github.com/allen1211/mrkv/internal/raft"
+	"github.com/allen1211/mrkv/pkg/common"
 )
 
 func nrand() int64 {

@@ -10,8 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/Allen1211/mrkv/internal/netw"
-	"github.com/Allen1211/mrkv/pkg/common"
+	"github.com/allen1211/mrkv/internal/netw"
+	"github.com/allen1211/mrkv/pkg/common"
 )
 
 type Clerk struct {

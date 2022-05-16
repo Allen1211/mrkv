@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Allen1211/mrkv/pkg/client"
-	"github.com/Allen1211/mrkv/pkg/common"
+	"github.com/allen1211/mrkv/pkg/client"
+	"github.com/allen1211/mrkv/pkg/common"
 )
 
 const (

@@ -6,7 +6,7 @@ import (
 
 	"github.com/syndtr/goleveldb/leveldb"
 
-	"github.com/Allen1211/mrkv/pkg/common"
+	"github.com/allen1211/mrkv/pkg/common"
 )
 
 type Shard struct {

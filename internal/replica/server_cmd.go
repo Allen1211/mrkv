@@ -1,8 +1,8 @@
 package replica
 
 import (
-	"github.com/Allen1211/mrkv/internal/raft"
-	"github.com/Allen1211/mrkv/pkg/common"
+	"github.com/allen1211/mrkv/internal/raft"
+	"github.com/allen1211/mrkv/pkg/common"
 )
 
 //go:generate msgp

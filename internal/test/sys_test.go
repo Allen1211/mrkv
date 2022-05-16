@@ -15,17 +15,17 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	master2 "github.com/Allen1211/mrkv/internal/master"
-	etc2 "github.com/Allen1211/mrkv/internal/master/etc"
-	netw2 "github.com/Allen1211/mrkv/internal/netw"
-	node2 "github.com/Allen1211/mrkv/internal/node"
-	"github.com/Allen1211/mrkv/internal/node/etc"
-	raft2 "github.com/Allen1211/mrkv/internal/raft"
-	replica2 "github.com/Allen1211/mrkv/internal/replica"
-	client2 "github.com/Allen1211/mrkv/pkg/client"
-	common2 "github.com/Allen1211/mrkv/pkg/common"
-	labgob2 "github.com/Allen1211/mrkv/pkg/common/labgob"
-	utils2 "github.com/Allen1211/mrkv/pkg/common/utils"
+	master2 "github.com/allen1211/mrkv/internal/master"
+	etc2 "github.com/allen1211/mrkv/internal/master/etc"
+	netw2 "github.com/allen1211/mrkv/internal/netw"
+	node2 "github.com/allen1211/mrkv/internal/node"
+	"github.com/allen1211/mrkv/internal/node/etc"
+	raft2 "github.com/allen1211/mrkv/internal/raft"
+	replica2 "github.com/allen1211/mrkv/internal/replica"
+	client2 "github.com/allen1211/mrkv/pkg/client"
+	common2 "github.com/allen1211/mrkv/pkg/common"
+	labgob2 "github.com/allen1211/mrkv/pkg/common/labgob"
+	utils2 "github.com/allen1211/mrkv/pkg/common/utils"
 )
 
 var masterAddrs = []string{":8000", ":8001", ":8002"}

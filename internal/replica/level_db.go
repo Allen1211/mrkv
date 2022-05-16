@@ -10,8 +10,8 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/syndtr/goleveldb/leveldb/util"
 
-	"github.com/Allen1211/mrkv/pkg/common/labgob"
-	"github.com/Allen1211/mrkv/pkg/common/utils"
+	"github.com/allen1211/mrkv/pkg/common/labgob"
+	"github.com/allen1211/mrkv/pkg/common/utils"
 )
 
 type LevelStore struct {

@@ -1,4 +1,4 @@
-module github.com/Allen1211/mrkv
+module github.com/allen1211/mrkv
 
 go 1.16
 

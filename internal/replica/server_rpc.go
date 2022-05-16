@@ -1,7 +1,7 @@
 package replica
 
 import (
-	"github.com/Allen1211/mrkv/internal/netw"
+	"github.com/allen1211/mrkv/internal/netw"
 )
 
 func (kv *ShardKV) rpcFuncImpl(apiName string, args interface{}, reply interface{}, ids ...int) bool {

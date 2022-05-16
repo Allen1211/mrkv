@@ -3,8 +3,8 @@ package master
 import (
 	"fmt"
 
-	"github.com/Allen1211/mrkv/internal/netw"
-	"github.com/Allen1211/mrkv/pkg/common"
+	"github.com/allen1211/mrkv/internal/netw"
+	"github.com/allen1211/mrkv/pkg/common"
 )
 
 func (sm *ShardMaster) createGroup2Nodes() map[int][]int {

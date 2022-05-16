@@ -3,7 +3,7 @@ package raft
 import (
 	"sync"
 
-	"github.com/Allen1211/mrkv/pkg/common/utils"
+	"github.com/allen1211/mrkv/pkg/common/utils"
 )
 
 const (

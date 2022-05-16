@@ -10,11 +10,11 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/Allen1211/mrkv/internal/netw"
-	"github.com/Allen1211/mrkv/internal/raft"
-	"github.com/Allen1211/mrkv/pkg/common"
-	"github.com/Allen1211/mrkv/pkg/common/labgob"
-	"github.com/Allen1211/mrkv/pkg/common/utils"
+	"github.com/allen1211/mrkv/internal/netw"
+	"github.com/allen1211/mrkv/internal/raft"
+	"github.com/allen1211/mrkv/pkg/common"
+	"github.com/allen1211/mrkv/pkg/common/labgob"
+	"github.com/allen1211/mrkv/pkg/common/utils"
 )
 
 var LogFileNameByOS = map[string]string{

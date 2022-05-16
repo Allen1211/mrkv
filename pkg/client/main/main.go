@@ -4,8 +4,8 @@ import (
 	"flag"
 	"strings"
 
-	"github.com/Allen1211/mrkv/pkg/client"
-	"github.com/Allen1211/mrkv/pkg/client/etc"
+	"github.com/allen1211/mrkv/pkg/client"
+	"github.com/allen1211/mrkv/pkg/client/etc"
 )
 
 func main() {

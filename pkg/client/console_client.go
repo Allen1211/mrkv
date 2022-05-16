@@ -12,8 +12,8 @@ import (
 	"github.com/liushuochen/gotable/cell"
 	table2 "github.com/liushuochen/gotable/table"
 
-	"github.com/Allen1211/mrkv/pkg/client/etc"
-	"github.com/Allen1211/mrkv/pkg/common"
+	"github.com/allen1211/mrkv/pkg/client/etc"
+	"github.com/allen1211/mrkv/pkg/common"
 )
 
 type Operation string

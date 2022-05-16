@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	netw2 "github.com/Allen1211/mrkv/internal/netw"
-	common2 "github.com/Allen1211/mrkv/pkg/common"
+	netw2 "github.com/allen1211/mrkv/internal/netw"
+	common2 "github.com/allen1211/mrkv/pkg/common"
 )
 
 func Test1(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Allen1211/mrkv/internal/test"
+	"github.com/allen1211/mrkv/internal/test"
 )
 
 func main() {

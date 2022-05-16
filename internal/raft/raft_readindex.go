@@ -4,7 +4,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Allen1211/mrkv/internal/netw"
+	"github.com/allen1211/mrkv/internal/netw"
 )
 
 func (rf *Raft) HasLogAtCurrentTerm() bool {

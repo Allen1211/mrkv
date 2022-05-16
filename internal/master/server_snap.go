@@ -3,8 +3,8 @@ package master
 import (
 	"bytes"
 
-	"github.com/Allen1211/mrkv/pkg/common"
-	"github.com/Allen1211/mrkv/pkg/common/labgob"
+	"github.com/allen1211/mrkv/pkg/common"
+	"github.com/allen1211/mrkv/pkg/common/labgob"
 )
 
 type SnapshotPackage struct {

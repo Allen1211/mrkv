@@ -12,13 +12,13 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
 
-	"github.com/Allen1211/mrkv/internal/master"
-	"github.com/Allen1211/mrkv/internal/netw"
-	"github.com/Allen1211/mrkv/internal/node/etc"
-	"github.com/Allen1211/mrkv/internal/replica"
-	"github.com/Allen1211/mrkv/pkg/common"
-	"github.com/Allen1211/mrkv/pkg/common/labgob"
-	"github.com/Allen1211/mrkv/pkg/common/utils"
+	"github.com/allen1211/mrkv/internal/master"
+	"github.com/allen1211/mrkv/internal/netw"
+	"github.com/allen1211/mrkv/internal/node/etc"
+	"github.com/allen1211/mrkv/internal/replica"
+	"github.com/allen1211/mrkv/pkg/common"
+	"github.com/allen1211/mrkv/pkg/common/labgob"
+	"github.com/allen1211/mrkv/pkg/common/utils"
 )
 
 type Node struct {

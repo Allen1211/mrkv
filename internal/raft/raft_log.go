@@ -10,7 +10,7 @@ import (
 	"github.com/Allen1211/msgp/msgp"
 	"github.com/sirupsen/logrus"
 
-	"github.com/Allen1211/mrkv/pkg/common/utils"
+	"github.com/allen1211/mrkv/pkg/common/utils"
 )
 
 type raftlog interface {

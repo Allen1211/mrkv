@@ -4,7 +4,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/Allen1211/mrkv/pkg/common"
+	"github.com/allen1211/mrkv/pkg/common"
 )
 
 func willTimeout(f func(), timeout time.Duration) bool {

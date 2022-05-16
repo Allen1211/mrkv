@@ -5,7 +5,7 @@ package raft
 import (
 	"github.com/Allen1211/msgp/msgp"
 
-	netw2 "github.com/Allen1211/mrkv/internal/netw"
+	netw2 "github.com/allen1211/mrkv/internal/netw"
 )
 
 // DecodeMsg implements msgp.Decodable

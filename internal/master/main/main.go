@@ -11,10 +11,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/Allen1211/mrkv/internal/master"
-	"github.com/Allen1211/mrkv/internal/master/etc"
-	"github.com/Allen1211/mrkv/pkg/common"
-	"github.com/Allen1211/mrkv/pkg/common/labgob"
+	"github.com/allen1211/mrkv/internal/master"
+	"github.com/allen1211/mrkv/internal/master/etc"
+	"github.com/allen1211/mrkv/pkg/common"
+	"github.com/allen1211/mrkv/pkg/common/labgob"
 )
 
 var (

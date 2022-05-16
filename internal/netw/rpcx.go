@@ -11,8 +11,8 @@ import (
 	"github.com/smallnest/rpcx/server"
 	"github.com/smallnest/rpcx/share"
 
-	"github.com/Allen1211/mrkv/internal/netw/codec"
-	"github.com/Allen1211/mrkv/pkg/common"
+	"github.com/allen1211/mrkv/internal/netw/codec"
+	"github.com/allen1211/mrkv/pkg/common"
 )
 
 func init() {

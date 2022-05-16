@@ -4,8 +4,8 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/Allen1211/mrkv/pkg/common"
-	"github.com/Allen1211/mrkv/pkg/common/utils"
+	"github.com/allen1211/mrkv/pkg/common"
+	"github.com/allen1211/mrkv/pkg/common/utils"
 )
 
 func (kv *ShardKV) applyer() {
